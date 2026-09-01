@@ -82,16 +82,16 @@ For a comprehensive dive into the design decisions and roadmaps, please refer to
 
 The foundational layer (Phase 1) is complete. The following phases remain to get V1 released:
 
-- **Phase 2 — Schema diff**
-  - Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
-- **Phase 3 — Migration plan**
-  - Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
-  - Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
-  - Add destructive operation detection.
-- **Phase 4 — MSSQL SQL renderer**
-  - Generate target-specific SQL DDL scripts for all supported schema changes (e.g., `CREATE SCHEMA`, `CREATE TABLE`, `ALTER TABLE`, etc.).
-- **Phase 5 — CLI UX**
-  - Add support for multiple output formats (text, JSON, SQL output).
-  - Implement `--output`, `--allow-destructive` flags, and standardize exit codes for CI integration.
-- **Phase 6 — Testing**
-  - Expand test coverage including unit tests, diff/SQL golden tests, and MSSQL integration tests (potentially using Testcontainers).
+- [ ] **Phase 2 — Schema diff**
+  - [ ] Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
+- [ ] **Phase 3 — Migration plan**
+  - [ ] Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
+  - [ ] Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
+  - [ ] Add destructive operation detection.
+- [ ] **Phase 4 — MSSQL SQL renderer**
+  - [ ] Generate target-specific SQL DDL scripts for all supported schema changes (e.g., `CREATE SCHEMA`, `CREATE TABLE`, `ALTER TABLE`, etc.).
+- [ ] **Phase 5 — CLI UX**
+  - [ ] Add support for multiple output formats (text, JSON, SQL output).
+  - [ ] Implement `--output`, `--allow-destructive` flags, and standardize exit codes for CI integration.
+- [ ] **Phase 6 — Testing**
+  - [ ] Expand test coverage including unit tests, diff/SQL golden tests, and MSSQL integration tests (potentially using Testcontainers).
