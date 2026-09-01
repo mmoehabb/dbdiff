@@ -1,0 +1,14 @@
+--- internal/adapters/mssql/renderer.go
++++ internal/adapters/mssql/renderer.go
+@@ -165,11 +165,5 @@
+	if c.Computed {
+		return fmt.Sprintf("[%s] AS %s", c.Name, c.ComputedExpr)
+	}
+-
+-	// special case for TypeJSON which contains CHECK constraint in its type rendering
+-	if c.Type.Kind == schema.TypeJSON {
+-		// TypeJSON mapped to: NVARCHAR(MAX) CHECK (ISJSON({column_name}) > 0)
+-		return fmt.Sprintf("[%s] %s %s%s%s", c.Name, typeStr, nullStr, identityStr, defaultStr)
+-	}
+
+	return fmt.Sprintf("[%s] %s %s%s%s", c.Name, typeStr, nullStr, identityStr, defaultStr)
