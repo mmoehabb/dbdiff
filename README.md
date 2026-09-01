@@ -84,10 +84,10 @@ The foundational layer (Phase 1) is complete. The following phases remain to get
 
 - [x] **Phase 2 — Schema diff**
   - [x] Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
-- [ ] **Phase 3 — Migration plan**
-  - [ ] Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
-  - [ ] Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
-  - [ ] Add destructive operation detection.
+- [x] **Phase 3 — Migration plan**
+  - [x] Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
+  - [x] Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
+  - [x] Add destructive operation detection.
 - [ ] **Phase 4 — MSSQL SQL renderer**
   - [ ] Generate target-specific SQL DDL scripts for all supported schema changes (e.g., `CREATE SCHEMA`, `CREATE TABLE`, `ALTER TABLE`, etc.).
 - [ ] **Phase 5 — CLI UX**

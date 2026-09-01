@@ -30,6 +30,7 @@ const (
 // Operation represents a single migration step conceptually.
 type Operation interface {
 	OperationType() OperationType
+	IsDestructive() bool
 }
 
 type CreateTableOperation struct {
@@ -38,6 +39,7 @@ type CreateTableOperation struct {
 }
 
 func (o CreateTableOperation) OperationType() OperationType { return CreateTable }
+func (o CreateTableOperation) IsDestructive() bool          { return false }
 
 type DropTableOperation struct {
 	SchemaName string
@@ -45,6 +47,7 @@ type DropTableOperation struct {
 }
 
 func (o DropTableOperation) OperationType() OperationType { return DropTable }
+func (o DropTableOperation) IsDestructive() bool          { return true }
 
 type AddColumnOperation struct {
 	SchemaName string
@@ -53,6 +56,7 @@ type AddColumnOperation struct {
 }
 
 func (o AddColumnOperation) OperationType() OperationType { return AddColumn }
+func (o AddColumnOperation) IsDestructive() bool          { return false }
 
 type DropColumnOperation struct {
 	SchemaName string
@@ -61,18 +65,21 @@ type DropColumnOperation struct {
 }
 
 func (o DropColumnOperation) OperationType() OperationType { return DropColumn }
+func (o DropColumnOperation) IsDestructive() bool          { return true }
 
 type CreateSchemaOperation struct {
 	SchemaName string
 }
 
 func (o CreateSchemaOperation) OperationType() OperationType { return CreateSchema }
+func (o CreateSchemaOperation) IsDestructive() bool          { return false }
 
 type DropSchemaOperation struct {
 	SchemaName string
 }
 
 func (o DropSchemaOperation) OperationType() OperationType { return DropSchema }
+func (o DropSchemaOperation) IsDestructive() bool          { return true }
 
 type AlterColumnOperation struct {
 	SchemaName string
@@ -81,6 +88,7 @@ type AlterColumnOperation struct {
 }
 
 func (o AlterColumnOperation) OperationType() OperationType { return AlterColumn }
+func (o AlterColumnOperation) IsDestructive() bool          { return false }
 
 type AddPrimaryKeyOperation struct {
 	SchemaName string
@@ -89,6 +97,7 @@ type AddPrimaryKeyOperation struct {
 }
 
 func (o AddPrimaryKeyOperation) OperationType() OperationType { return AddPrimaryKey }
+func (o AddPrimaryKeyOperation) IsDestructive() bool          { return false }
 
 type DropPrimaryKeyOperation struct {
 	SchemaName string
@@ -96,6 +105,7 @@ type DropPrimaryKeyOperation struct {
 }
 
 func (o DropPrimaryKeyOperation) OperationType() OperationType { return DropPrimaryKey }
+func (o DropPrimaryKeyOperation) IsDestructive() bool          { return true }
 
 type AddForeignKeyOperation struct {
 	SchemaName string
@@ -104,6 +114,7 @@ type AddForeignKeyOperation struct {
 }
 
 func (o AddForeignKeyOperation) OperationType() OperationType { return AddForeignKey }
+func (o AddForeignKeyOperation) IsDestructive() bool          { return false }
 
 type DropForeignKeyOperation struct {
 	SchemaName     string
@@ -112,6 +123,7 @@ type DropForeignKeyOperation struct {
 }
 
 func (o DropForeignKeyOperation) OperationType() OperationType { return DropForeignKey }
+func (o DropForeignKeyOperation) IsDestructive() bool          { return true }
 
 type CreateIndexOperation struct {
 	SchemaName string
@@ -120,6 +132,7 @@ type CreateIndexOperation struct {
 }
 
 func (o CreateIndexOperation) OperationType() OperationType { return CreateIndex }
+func (o CreateIndexOperation) IsDestructive() bool          { return false }
 
 type DropIndexOperation struct {
 	SchemaName string
@@ -128,3 +141,4 @@ type DropIndexOperation struct {
 }
 
 func (o DropIndexOperation) OperationType() OperationType { return DropIndex }
+func (o DropIndexOperation) IsDestructive() bool          { return true }

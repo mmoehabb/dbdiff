@@ -49,6 +49,7 @@ func (d *SchemaDiffer) Compare(source, target *schema.Database) *MigrationPlan {
 		}
 	}
 
+	plan.SortOperations()
 	return plan
 }
 
@@ -66,10 +67,29 @@ func (d *SchemaDiffer) compareTables(sourceSchema, targetSchema *schema.Schema, 
 
 		if targetTable == nil {
 			// Create missing table
+
+			// Strip PK, FKs, Indexes from the table used for CreateTableOperation
+			// so they can be emitted as separate operations for dependency ordering
+			tableForCreate := *sourceTable
+			tableForCreate.PrimaryKey = nil
+			tableForCreate.ForeignKeys = make(map[string]*schema.ForeignKey)
+			tableForCreate.Indexes = make(map[string]*schema.Index)
+
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateTableOperation{
 				SchemaName: sourceSchema.Name,
-				Table:      *sourceTable,
+				Table:      tableForCreate,
 			})
+
+			// Compare against a dummy empty target table to emit AddPK, CreateIndex, AddFK operations
+			dummyTarget := &schema.Table{
+				Name:        sourceTable.Name,
+				Columns:     make(map[string]*schema.Column),
+				ForeignKeys: make(map[string]*schema.ForeignKey),
+				Indexes:     make(map[string]*schema.Index),
+			}
+			d.comparePrimaryKeys(sourceSchema.Name, sourceTable, dummyTarget, plan)
+			d.compareIndexes(sourceSchema.Name, sourceTable, dummyTarget, plan)
+			d.compareForeignKeys(sourceSchema.Name, sourceTable, dummyTarget, plan)
 		} else {
 			// Compare existing table
 			d.compareColumns(sourceSchema.Name, sourceTable, targetTable, plan)
