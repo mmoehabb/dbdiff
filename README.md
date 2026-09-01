@@ -90,8 +90,8 @@ The foundational layer (Phase 1) is complete. The following phases remain to get
   - [x] Add destructive operation detection.
 - [x] **Phase 4 — MSSQL SQL renderer**
   - [x] Generate target-specific SQL DDL scripts for all supported schema changes (e.g., `CREATE SCHEMA`, `CREATE TABLE`, `ALTER TABLE`, etc.).
-- [ ] **Phase 5 — CLI UX**
-  - [ ] Add support for multiple output formats (text, JSON, SQL output).
-  - [ ] Implement `--output`, `--allow-destructive` flags, and standardize exit codes for CI integration.
+- [x] **Phase 5 — CLI UX**
+  - [x] Add support for multiple output formats (text, JSON, SQL output).
+  - [x] Implement `--output`, `--allow-destructive` flags, and standardize exit codes for CI integration.
 - [ ] **Phase 6 — Testing**
   - [ ] Expand test coverage including unit tests, diff/SQL golden tests, and MSSQL integration tests (potentially using Testcontainers).
