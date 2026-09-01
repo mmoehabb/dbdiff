@@ -61,3 +61,70 @@ type DropColumnOperation struct {
 }
 
 func (o DropColumnOperation) OperationType() OperationType { return DropColumn }
+
+type CreateSchemaOperation struct {
+	SchemaName string
+}
+
+func (o CreateSchemaOperation) OperationType() OperationType { return CreateSchema }
+
+type DropSchemaOperation struct {
+	SchemaName string
+}
+
+func (o DropSchemaOperation) OperationType() OperationType { return DropSchema }
+
+type AlterColumnOperation struct {
+	SchemaName string
+	TableName  string
+	Column     schema.Column
+}
+
+func (o AlterColumnOperation) OperationType() OperationType { return AlterColumn }
+
+type AddPrimaryKeyOperation struct {
+	SchemaName string
+	TableName  string
+	PrimaryKey schema.PrimaryKey
+}
+
+func (o AddPrimaryKeyOperation) OperationType() OperationType { return AddPrimaryKey }
+
+type DropPrimaryKeyOperation struct {
+	SchemaName string
+	TableName  string
+}
+
+func (o DropPrimaryKeyOperation) OperationType() OperationType { return DropPrimaryKey }
+
+type AddForeignKeyOperation struct {
+	SchemaName string
+	TableName  string
+	ForeignKey schema.ForeignKey
+}
+
+func (o AddForeignKeyOperation) OperationType() OperationType { return AddForeignKey }
+
+type DropForeignKeyOperation struct {
+	SchemaName     string
+	TableName      string
+	ForeignKeyName string
+}
+
+func (o DropForeignKeyOperation) OperationType() OperationType { return DropForeignKey }
+
+type CreateIndexOperation struct {
+	SchemaName string
+	TableName  string
+	Index      schema.Index
+}
+
+func (o CreateIndexOperation) OperationType() OperationType { return CreateIndex }
+
+type DropIndexOperation struct {
+	SchemaName string
+	TableName  string
+	IndexName  string
+}
+
+func (o DropIndexOperation) OperationType() OperationType { return DropIndex }

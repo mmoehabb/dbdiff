@@ -82,8 +82,8 @@ For a comprehensive dive into the design decisions and roadmaps, please refer to
 
 The foundational layer (Phase 1) is complete. The following phases remain to get V1 released:
 
-- [ ] **Phase 2 — Schema diff**
-  - [ ] Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
+- [x] **Phase 2 — Schema diff**
+  - [x] Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
 - [ ] **Phase 3 — Migration plan**
   - [ ] Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
   - [ ] Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
