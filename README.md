@@ -10,15 +10,9 @@ Currently, `dbdiff` provides the foundational architecture mapped out in [V1_PLA
 
 Ensure you have [Go](https://go.dev/) (version 1.20+ recommended) installed.
 
-Clone the repository and build the project:
-
 ```bash
-git clone <repository_url>
-cd dbdiff
-go build -o dbdiff ./cmd/dbdiff
+go install github.com/mmoehabb/dbdiff@latest
 ```
-
-You can then run `./dbdiff` from your terminal or add it to your `PATH`.
 
 ## How to Compile and Run
 
