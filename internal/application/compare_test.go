@@ -9,15 +9,6 @@ import (
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
-// MockIntrospector is a simple mock for testing
-type MockIntrospector struct {
-	db *schema.Database
-}
-
-func (m *MockIntrospector) Inspect(ctx context.Context) (*schema.Database, error) {
-	return m.db, nil
-}
-
 // MockDiffer is a simple mock for testing
 type MockDiffer struct {
 	plan *diff.MigrationPlan
@@ -32,11 +23,9 @@ func TestCompare(t *testing.T) {
 	targetDB := &schema.Database{Name: "target"}
 	expectedPlan := &diff.MigrationPlan{}
 
-	sourceIntrospector := &MockIntrospector{db: sourceDB}
-	targetIntrospector := &MockIntrospector{db: targetDB}
 	differ := &MockDiffer{plan: expectedPlan}
 
-	result, err := application.Compare(context.Background(), sourceIntrospector, targetIntrospector, differ)
+	result, err := application.Compare(context.Background(), sourceDB, targetDB, differ)
 
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
