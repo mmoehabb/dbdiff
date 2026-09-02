@@ -20,5 +20,8 @@ jobs:
     - name: Build
       run: go build -v ./...
 
+    - name: Start Docker
+      run: systemctl is-active docker || sudo systemctl start docker
+
     - name: Test
       run: go test -v ./...

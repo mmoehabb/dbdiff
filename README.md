@@ -77,21 +77,3 @@ The underlying architecture prioritizes the complete separation of core logic fr
 By using this approach, adding support for other engines like PostgreSQL or MySQL primarily involves creating new Introspectors and Renderers without modifying the complex schema diffing engine itself. Future phases also plan to seamlessly support Data Operations alongside Schema Operations in the Migration Plan.
 
 For a comprehensive dive into the design decisions and roadmaps, please refer to the [V1_PLAN.md](V1_PLAN.md) file at the root of the project.
-
-## TODO / V1 Roadmap
-
-The foundational layer (Phase 1) is complete. The following phases remain to get V1 released:
-
-- [x] **Phase 2 — Schema diff**
-  - [x] Implement comparison logic for: schemas, tables, columns, types, nullability, identity, defaults, PKs, FKs, and indexes.
-- [x] **Phase 3 — Migration plan**
-  - [x] Introduce intermediate representations like `MigrationPlan` and `MigrationOperation`.
-  - [x] Implement dependency ordering to ensure safe execution (e.g., creating tables before adding foreign keys).
-  - [x] Add destructive operation detection.
-- [x] **Phase 4 — MSSQL SQL renderer**
-  - [x] Generate target-specific SQL DDL scripts for all supported schema changes (e.g., `CREATE SCHEMA`, `CREATE TABLE`, `ALTER TABLE`, etc.).
-- [x] **Phase 5 — CLI UX**
-  - [x] Add support for multiple output formats (text, JSON, SQL output).
-  - [x] Implement `--output`, `--allow-destructive` flags, and standardize exit codes for CI integration.
-- [ ] **Phase 6 — Testing**
-  - [ ] Expand test coverage including unit tests, diff/SQL golden tests, and MSSQL integration tests (potentially using Testcontainers).
