@@ -7,12 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"dbdiff/internal/adapters/json"
-	"dbdiff/internal/adapters/mssql"
-	"dbdiff/internal/adapters/text"
-	"dbdiff/internal/application"
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/ports"
+	"github.com/mmoehabb/dbdiff/internal/adapters/json"
+	"github.com/mmoehabb/dbdiff/internal/adapters/mssql"
+	"github.com/mmoehabb/dbdiff/internal/adapters/text"
+	"github.com/mmoehabb/dbdiff/internal/application"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/ports"
 )
 
 var (

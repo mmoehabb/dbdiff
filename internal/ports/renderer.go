@@ -2,7 +2,7 @@ package ports
 
 import (
 	"context"
-	"dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 )
 
 // Renderer defines the port for rendering a migration plan into target-specific SQL.

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/domain/schema"
 	_ "github.com/microsoft/go-mssqldb"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 	mssqlc "github.com/testcontainers/testcontainers-go/modules/mssql"
 )
 
@@ -64,27 +64,27 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 					Name: "users",
 					Columns: map[string]*schema.Column{
 						"id": {
-							Name: "id",
-							Type: schema.DataType{Kind: schema.TypeInteger},
+							Name:     "id",
+							Type:     schema.DataType{Kind: schema.TypeInteger},
 							Nullable: false,
 							Identity: true,
 						},
 						"email": {
-							Name: "email",
-							Type: schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
+							Name:     "email",
+							Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
 							Nullable: false,
 						},
 						"created_at": {
-							Name: "created_at",
-							Type: schema.DataType{Kind: schema.TypeDateTime},
+							Name:     "created_at",
+							Type:     schema.DataType{Kind: schema.TypeDateTime},
 							Nullable: false,
-							Default: &schema.DefaultExpression{Value: "GETDATE()"},
+							Default:  &schema.DefaultExpression{Value: "GETDATE()"},
 						},
 						"is_active": {
-							Name: "is_active",
-							Type: schema.DataType{Kind: schema.TypeBoolean},
+							Name:     "is_active",
+							Type:     schema.DataType{Kind: schema.TypeBoolean},
 							Nullable: false,
-							Default: &schema.DefaultExpression{Value: "1"},
+							Default:  &schema.DefaultExpression{Value: "1"},
 						},
 					},
 				},
@@ -93,7 +93,7 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 				SchemaName: "test_schema",
 				TableName:  "users",
 				PrimaryKey: schema.PrimaryKey{
-					Name: "PK_test_users",
+					Name:    "PK_test_users",
 					Columns: []string{"id"},
 				},
 			},
@@ -101,8 +101,8 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 				SchemaName: "test_schema",
 				TableName:  "users",
 				Index: schema.Index{
-					Name: "IX_test_users_email",
-					Columns: []string{"email"},
+					Name:     "IX_test_users_email",
+					Columns:  []string{"email"},
 					IsUnique: true,
 				},
 			},
@@ -112,14 +112,14 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 					Name: "orders",
 					Columns: map[string]*schema.Column{
 						"id": {
-							Name: "id",
-							Type: schema.DataType{Kind: schema.TypeInteger},
+							Name:     "id",
+							Type:     schema.DataType{Kind: schema.TypeInteger},
 							Nullable: false,
 							Identity: true,
 						},
 						"user_id": {
-							Name: "user_id",
-							Type: schema.DataType{Kind: schema.TypeInteger},
+							Name:     "user_id",
+							Type:     schema.DataType{Kind: schema.TypeInteger},
 							Nullable: false,
 						},
 					},
@@ -129,7 +129,7 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 				SchemaName: "test_schema",
 				TableName:  "orders",
 				PrimaryKey: schema.PrimaryKey{
-					Name: "PK_test_orders",
+					Name:    "PK_test_orders",
 					Columns: []string{"id"},
 				},
 			},
@@ -137,9 +137,9 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 				SchemaName: "test_schema",
 				TableName:  "orders",
 				ForeignKey: schema.ForeignKey{
-					Name: "FK_test_orders_users",
-					Columns: []string{"user_id"},
-					RefTable: "users",
+					Name:       "FK_test_orders_users",
+					Columns:    []string{"user_id"},
+					RefTable:   "users",
 					RefColumns: []string{"id"},
 				},
 			},

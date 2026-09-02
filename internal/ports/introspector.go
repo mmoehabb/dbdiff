@@ -2,7 +2,7 @@ package ports
 
 import (
 	"context"
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 // Introspector defines the port for reading a schema from a database.

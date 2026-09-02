@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 )
 
 func TestJSONRenderer(t *testing.T) {

@@ -1,4 +1,4 @@
-module dbdiff
+module github.com/mmoehabb/dbdiff
 
 go 1.24.3
 

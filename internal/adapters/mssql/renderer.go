@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 // MSSQLRenderer implements the ports.Renderer interface for SQL Server.

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 )
 
 func TestTextRenderer(t *testing.T) {

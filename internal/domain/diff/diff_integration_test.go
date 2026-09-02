@@ -1,7 +1,7 @@
 package diff
 
 import (
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 	"testing"
 )
 
@@ -22,24 +22,24 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 						Name: "users",
 						Columns: map[string]*schema.Column{
 							"id": {
-								Name: "id",
-								Type: schema.DataType{Kind: schema.TypeInteger},
+								Name:     "id",
+								Type:     schema.DataType{Kind: schema.TypeInteger},
 								Nullable: false,
 							},
 							"email": {
-								Name: "email",
-								Type: schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
+								Name:     "email",
+								Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
 								Nullable: false,
 							},
 						},
 						PrimaryKey: &schema.PrimaryKey{
-							Name: "PK_users",
+							Name:    "PK_users",
 							Columns: []string{"id"},
 						},
 						Indexes: map[string]*schema.Index{
 							"IX_users_email": {
-								Name: "IX_users_email",
-								Columns: []string{"email"},
+								Name:     "IX_users_email",
+								Columns:  []string{"email"},
 								IsUnique: true,
 							},
 						},
@@ -56,7 +56,7 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 				},
 			},
 			"new_schema": {
-				Name: "new_schema",
+				Name:   "new_schema",
 				Tables: map[string]*schema.Table{},
 			},
 		},
@@ -72,14 +72,14 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 						Name: "users",
 						Columns: map[string]*schema.Column{
 							"id": {
-								Name: "id",
-								Type: schema.DataType{Kind: schema.TypeInteger},
+								Name:     "id",
+								Type:     schema.DataType{Kind: schema.TypeInteger},
 								Nullable: false,
 							},
 							"email": {
-								Name: "email",
-								Type: schema.DataType{Kind: schema.TypeString, Length: ptr(100)}, // Length changed
-								Nullable: true, // Nullability changed
+								Name:     "email",
+								Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(100)}, // Length changed
+								Nullable: true,                                                       // Nullability changed
 							},
 							"old_column": {
 								Name: "old_column",
@@ -87,12 +87,12 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 							},
 						},
 						PrimaryKey: &schema.PrimaryKey{
-							Name: "PK_users",
+							Name:    "PK_users",
 							Columns: []string{"id"},
 						},
 						Indexes: map[string]*schema.Index{
 							"IX_users_old": {
-								Name: "IX_users_old",
+								Name:    "IX_users_old",
 								Columns: []string{"id"},
 							},
 						},
@@ -106,7 +106,7 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 				},
 			},
 			"legacy_schema": {
-				Name: "legacy_schema",
+				Name:   "legacy_schema",
 				Tables: map[string]*schema.Table{},
 			},
 		},
@@ -115,14 +115,14 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 	plan := differ.Compare(sourceDB, targetDB)
 
 	expectedOps := map[OperationType]int{
-		CreateSchema:    1, // new_schema
-		DropSchema:      1, // legacy_schema
-		CreateTable:     1, // new_table
-		DropTable:       1, // legacy_table
-		AlterColumn:     1, // email in users
-		DropColumn:      1, // old_column in users
-		CreateIndex:     1, // IX_users_email
-		DropIndex:       1, // IX_users_old
+		CreateSchema: 1, // new_schema
+		DropSchema:   1, // legacy_schema
+		CreateTable:  1, // new_table
+		DropTable:    1, // legacy_table
+		AlterColumn:  1, // email in users
+		DropColumn:   1, // old_column in users
+		CreateIndex:  1, // IX_users_email
+		DropIndex:    1, // IX_users_old
 	}
 
 	actualOps := make(map[OperationType]int)

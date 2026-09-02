@@ -1,7 +1,7 @@
 package diff
 
 import (
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 // SchemaDiffer implements ports.Differ

@@ -1,6 +1,6 @@
 package diff
 
-import "dbdiff/internal/domain/schema"
+import "github.com/mmoehabb/dbdiff/internal/domain/schema"
 
 // OperationType categorizes operations
 type OperationType string

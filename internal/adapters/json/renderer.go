@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 )
 
 // JSONRenderer implements the ports.Renderer interface for JSON format.

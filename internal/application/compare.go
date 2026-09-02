@@ -2,8 +2,8 @@ package application
 
 import (
 	"context"
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/ports"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/ports"
 )
 
 // ComparisonResult wraps the output of the compare operation.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 )
 
 // TextRenderer implements the ports.Renderer interface for simple text format.

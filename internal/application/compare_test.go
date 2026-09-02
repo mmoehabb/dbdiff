@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"dbdiff/internal/application"
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/application"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 // MockIntrospector is a simple mock for testing

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"dbdiff/internal/domain/diff"
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 func ptr[T any](v T) *T {
@@ -25,19 +25,19 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 					Name: "users",
 					Columns: map[string]*schema.Column{
 						"id": {
-							Name: "id",
-							Type: schema.DataType{Kind: schema.TypeInteger},
+							Name:     "id",
+							Type:     schema.DataType{Kind: schema.TypeInteger},
 							Nullable: false,
 							Identity: true,
 						},
 						"email": {
-							Name: "email",
-							Type: schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
+							Name:     "email",
+							Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(255)},
 							Nullable: true,
 						},
 						"meta": {
-							Name: "meta",
-							Type: schema.DataType{Kind: schema.TypeJSON},
+							Name:     "meta",
+							Type:     schema.DataType{Kind: schema.TypeJSON},
 							Nullable: true,
 						},
 					},
@@ -47,18 +47,18 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 				SchemaName: "dbo",
 				TableName:  "users",
 				Column: schema.Column{
-					Name: "active",
-					Type: schema.DataType{Kind: schema.TypeBoolean},
+					Name:     "active",
+					Type:     schema.DataType{Kind: schema.TypeBoolean},
 					Nullable: false,
-					Default: &schema.DefaultExpression{Value: "1"},
+					Default:  &schema.DefaultExpression{Value: "1"},
 				},
 			},
 			diff.AlterColumnOperation{
 				SchemaName: "dbo",
 				TableName:  "users",
 				Column: schema.Column{
-					Name: "email",
-					Type: schema.DataType{Kind: schema.TypeString, Length: ptr(500)},
+					Name:     "email",
+					Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(500)},
 					Nullable: false,
 				},
 			},
@@ -71,7 +71,7 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 				SchemaName: "dbo",
 				TableName:  "users",
 				PrimaryKey: schema.PrimaryKey{
-					Name: "PK_users",
+					Name:    "PK_users",
 					Columns: []string{"id"},
 				},
 			},
@@ -83,23 +83,23 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 				SchemaName: "dbo",
 				TableName:  "orders",
 				ForeignKey: schema.ForeignKey{
-					Name: "FK_orders_users",
-					Columns: []string{"user_id"},
-					RefTable: "users",
+					Name:       "FK_orders_users",
+					Columns:    []string{"user_id"},
+					RefTable:   "users",
 					RefColumns: []string{"id"},
 				},
 			},
 			diff.DropForeignKeyOperation{
-				SchemaName: "dbo",
-				TableName:  "orders",
+				SchemaName:     "dbo",
+				TableName:      "orders",
 				ForeignKeyName: "FK_orders_old",
 			},
 			diff.CreateIndexOperation{
 				SchemaName: "dbo",
 				TableName:  "users",
 				Index: schema.Index{
-					Name: "IX_users_email",
-					Columns: []string{"email"},
+					Name:     "IX_users_email",
+					Columns:  []string{"email"},
 					IsUnique: true,
 				},
 			},
@@ -159,58 +159,58 @@ func TestMSSQLRenderer_Render_DataTypeMapping(t *testing.T) {
 					Name: "data_types",
 					Columns: map[string]*schema.Column{
 						"col_str_len": {
-							Name: "col_str_len",
-							Type: schema.DataType{Kind: schema.TypeString, Length: ptr(100)},
+							Name:     "col_str_len",
+							Type:     schema.DataType{Kind: schema.TypeString, Length: ptr(100)},
 							Nullable: true,
 						},
 						"col_str_max": {
-							Name: "col_str_max",
-							Type: schema.DataType{Kind: schema.TypeString},
+							Name:     "col_str_max",
+							Type:     schema.DataType{Kind: schema.TypeString},
 							Nullable: true,
 						},
 						"col_int": {
-							Name: "col_int",
-							Type: schema.DataType{Kind: schema.TypeInteger},
+							Name:     "col_int",
+							Type:     schema.DataType{Kind: schema.TypeInteger},
 							Nullable: true,
 						},
 						"col_dec_prec": {
-							Name: "col_dec_prec",
-							Type: schema.DataType{Kind: schema.TypeDecimal, Precision: ptr(10), Scale: ptr(2)},
+							Name:     "col_dec_prec",
+							Type:     schema.DataType{Kind: schema.TypeDecimal, Precision: ptr(10), Scale: ptr(2)},
 							Nullable: true,
 						},
 						"col_dec_def": {
-							Name: "col_dec_def",
-							Type: schema.DataType{Kind: schema.TypeDecimal},
+							Name:     "col_dec_def",
+							Type:     schema.DataType{Kind: schema.TypeDecimal},
 							Nullable: true,
 						},
 						"col_bool": {
-							Name: "col_bool",
-							Type: schema.DataType{Kind: schema.TypeBoolean},
+							Name:     "col_bool",
+							Type:     schema.DataType{Kind: schema.TypeBoolean},
 							Nullable: true,
 						},
 						"col_datetime": {
-							Name: "col_datetime",
-							Type: schema.DataType{Kind: schema.TypeDateTime},
+							Name:     "col_datetime",
+							Type:     schema.DataType{Kind: schema.TypeDateTime},
 							Nullable: true,
 						},
 						"col_uuid": {
-							Name: "col_uuid",
-							Type: schema.DataType{Kind: schema.TypeUUID},
+							Name:     "col_uuid",
+							Type:     schema.DataType{Kind: schema.TypeUUID},
 							Nullable: true,
 						},
 						"col_bin_len": {
-							Name: "col_bin_len",
-							Type: schema.DataType{Kind: schema.TypeBinary, Length: ptr(64)},
+							Name:     "col_bin_len",
+							Type:     schema.DataType{Kind: schema.TypeBinary, Length: ptr(64)},
 							Nullable: true,
 						},
 						"col_bin_max": {
-							Name: "col_bin_max",
-							Type: schema.DataType{Kind: schema.TypeBinary},
+							Name:     "col_bin_max",
+							Type:     schema.DataType{Kind: schema.TypeBinary},
 							Nullable: true,
 						},
 						"col_json": {
-							Name: "col_json",
-							Type: schema.DataType{Kind: schema.TypeJSON},
+							Name:     "col_json",
+							Type:     schema.DataType{Kind: schema.TypeJSON},
 							Nullable: true,
 						},
 					},

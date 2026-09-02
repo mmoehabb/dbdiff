@@ -2,7 +2,7 @@ package mssql
 
 import (
 	"context"
-	"dbdiff/internal/domain/schema"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
 // MSSQLIntrospector implements the ports.Introspector interface for SQL Server.
