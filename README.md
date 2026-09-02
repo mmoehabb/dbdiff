@@ -1,7 +1,5 @@
 # dbdiff
 
-> **Note:** This project is currently a work in progress. Please refer to the [TODO / V1 Roadmap](#todo--v1-roadmap) section below to see what remains to be implemented for the initial release.
-
 `dbdiff` is a database-diff engine built to compare database schemas and generate migration scripts. It is designed to be database-agnostic at its core, enabling comparisons and potential extensions to various relational database systems like SQL Server, PostgreSQL, and MySQL.
 
 Currently, `dbdiff` provides the foundational architecture mapped out in [V1_PLAN.md](V1_PLAN.md) including standard models for schemas, migrations, diffing operations, and a skeletal implementation of an MSSQL adapter.
