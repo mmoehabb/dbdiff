@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 	"github.com/mmoehabb/dbdiff/internal/ports"
 )
 
@@ -12,24 +13,13 @@ type ComparisonResult struct {
 	Warnings []string
 }
 
-// Compare takes a source and a target introspector and a differ, and returns a MigrationPlan.
-// It will inspect both databases, generate the diff, and produce a migration plan.
+// Compare takes a source and a target schema and a differ, and returns a MigrationPlan.
 func Compare(
 	ctx context.Context,
-	source ports.Introspector,
-	target ports.Introspector,
+	sourceSchema *schema.Database,
+	targetSchema *schema.Database,
 	differ ports.Differ,
 ) (*ComparisonResult, error) {
-
-	sourceSchema, err := source.Inspect(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	targetSchema, err := target.Inspect(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	migrationPlan := differ.Compare(sourceSchema, targetSchema)
 

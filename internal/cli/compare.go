@@ -21,6 +21,7 @@ var (
 	format           string
 	output           string
 	allowDestructive bool
+	quiet            bool
 )
 
 var compareCmd = &cobra.Command{
@@ -29,12 +30,33 @@ var compareCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		ctx := context.Background()
 
-		// Initialize introspectors (mocking with dummy source/target for now)
+		// Initialize introspectors
 		sourceIntrospector := mssql.NewMSSQLIntrospector(source)
 		targetIntrospector := mssql.NewMSSQLIntrospector(target)
 		differ := diff.NewSchemaDiffer()
 
-		result, err := application.Compare(ctx, sourceIntrospector, targetIntrospector, differ)
+		if !quiet {
+			fmt.Fprintln(os.Stderr, "Introspecting source database...")
+		}
+		sourceSchema, err := sourceIntrospector.Inspect(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error introspecting source database: %v\n", err)
+			os.Exit(2)
+		}
+
+		if !quiet {
+			fmt.Fprintln(os.Stderr, "Introspecting target database...")
+		}
+		targetSchema, err := targetIntrospector.Inspect(ctx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error introspecting target database: %v\n", err)
+			os.Exit(2)
+		}
+
+		if !quiet {
+			fmt.Fprintln(os.Stderr, "Comparing schemas...")
+		}
+		result, err := application.Compare(ctx, sourceSchema, targetSchema, differ)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error comparing databases: %v\n", err)
 			os.Exit(2)
@@ -47,8 +69,8 @@ var compareCmd = &cobra.Command{
 		// Handle destructive operations
 		if plan.HasDestructiveOperations() {
 			if !allowDestructive {
-				fmt.Fprintln(os.Stderr, "Warning: Destructive operations detected. They have been omitted.")
-				fmt.Fprintln(os.Stderr, "Use --allow-destructive to include them.")
+				fmt.Fprintln(os.Stderr, "\033[33mWarning: Destructive operations detected. They have been omitted.\033[0m")
+				fmt.Fprintln(os.Stderr, "\033[33mUse --allow-destructive to include them.\033[0m")
 
 				// Filter out destructive operations
 				filteredOps := []diff.Operation{}
@@ -75,6 +97,9 @@ var compareCmd = &cobra.Command{
 			os.Exit(2)
 		}
 
+		if !quiet {
+			fmt.Fprintln(os.Stderr, "Generating output...")
+		}
 		renderedOutput, err := renderer.Render(ctx, plan)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error rendering output: %v\n", err)
@@ -107,6 +132,7 @@ func init() {
 	compareCmd.Flags().StringVarP(&format, "format", "f", "sql", "Output format (sql, json, text)")
 	compareCmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default is stdout)")
 	compareCmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "Allow destructive operations like DROP TABLE")
+	compareCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress messages")
 
 	compareCmd.MarkFlagRequired("source")
 	compareCmd.MarkFlagRequired("target")
