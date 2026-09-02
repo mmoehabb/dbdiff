@@ -173,7 +173,7 @@ func TestMSSQLIntegration_EndToEnd_SchemaGeneration(t *testing.T) {
 	if err != nil {
 		// If it fails due to "CREATE SCHEMA must be the only statement in the batch",
 		// we can strip the transaction and execute line by line (split by "\n\n").
-		if strings.Contains(err.Error(), "must be the only statement in the batch") {
+		if strings.Contains(err.Error(), "must be the first statement in a query batch") || strings.Contains(err.Error(), "must be the only statement in the batch") {
 			t.Log("SQL Server requires certain statements to be the only one in a batch. Splitting statements...")
 
 			// Remove transaction wrapping for the sake of the test since go-mssqldb doesn't do "GO" batch parsing.
