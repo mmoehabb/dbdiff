@@ -69,8 +69,8 @@ var compareCmd = &cobra.Command{
 		// Handle destructive operations
 		if plan.HasDestructiveOperations() {
 			if !allowDestructive {
-				fmt.Fprintln(os.Stderr, "Warning: Destructive operations detected. They have been omitted.")
-				fmt.Fprintln(os.Stderr, "Use --allow-destructive to include them.")
+				fmt.Fprintln(os.Stderr, "\033[33mWarning: Destructive operations detected. They have been omitted.\033[0m")
+				fmt.Fprintln(os.Stderr, "\033[33mUse --allow-destructive to include them.\033[0m")
 
 				// Filter out destructive operations
 				filteredOps := []diff.Operation{}
