@@ -147,3 +147,100 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 		}
 	}
 }
+
+func TestMSSQLRenderer_Render_DataTypeMapping(t *testing.T) {
+	renderer := NewMSSQLRenderer()
+
+	plan := &diff.MigrationPlan{
+		SchemaOperations: []diff.Operation{
+			diff.CreateTableOperation{
+				SchemaName: "dbo",
+				Table: schema.Table{
+					Name: "data_types",
+					Columns: map[string]*schema.Column{
+						"col_str_len": {
+							Name: "col_str_len",
+							Type: schema.DataType{Kind: schema.TypeString, Length: ptr(100)},
+							Nullable: true,
+						},
+						"col_str_max": {
+							Name: "col_str_max",
+							Type: schema.DataType{Kind: schema.TypeString},
+							Nullable: true,
+						},
+						"col_int": {
+							Name: "col_int",
+							Type: schema.DataType{Kind: schema.TypeInteger},
+							Nullable: true,
+						},
+						"col_dec_prec": {
+							Name: "col_dec_prec",
+							Type: schema.DataType{Kind: schema.TypeDecimal, Precision: ptr(10), Scale: ptr(2)},
+							Nullable: true,
+						},
+						"col_dec_def": {
+							Name: "col_dec_def",
+							Type: schema.DataType{Kind: schema.TypeDecimal},
+							Nullable: true,
+						},
+						"col_bool": {
+							Name: "col_bool",
+							Type: schema.DataType{Kind: schema.TypeBoolean},
+							Nullable: true,
+						},
+						"col_datetime": {
+							Name: "col_datetime",
+							Type: schema.DataType{Kind: schema.TypeDateTime},
+							Nullable: true,
+						},
+						"col_uuid": {
+							Name: "col_uuid",
+							Type: schema.DataType{Kind: schema.TypeUUID},
+							Nullable: true,
+						},
+						"col_bin_len": {
+							Name: "col_bin_len",
+							Type: schema.DataType{Kind: schema.TypeBinary, Length: ptr(64)},
+							Nullable: true,
+						},
+						"col_bin_max": {
+							Name: "col_bin_max",
+							Type: schema.DataType{Kind: schema.TypeBinary},
+							Nullable: true,
+						},
+						"col_json": {
+							Name: "col_json",
+							Type: schema.DataType{Kind: schema.TypeJSON},
+							Nullable: true,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	sql, err := renderer.Render(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedParts := []string{
+		"[col_str_len] NVARCHAR(100) NULL",
+		"[col_str_max] NVARCHAR(MAX) NULL",
+		"[col_int] INT NULL",
+		"[col_dec_prec] DECIMAL(10, 2) NULL",
+		"[col_dec_def] DECIMAL(18, 0) NULL",
+		"[col_bool] BIT NULL",
+		"[col_datetime] DATETIME2 NULL",
+		"[col_uuid] UNIQUEIDENTIFIER NULL",
+		"[col_bin_len] VARBINARY(64) NULL",
+		"[col_bin_max] VARBINARY(MAX) NULL",
+		"[col_json] NVARCHAR(MAX) CHECK (ISJSON([col_json]) > 0) NULL",
+	}
+
+	for _, part := range expectedParts {
+		if !strings.Contains(sql, part) {
+			t.Errorf("expected SQL to contain:\n%s\n\nActual SQL:\n%s", part, sql)
+		}
+	}
+}
