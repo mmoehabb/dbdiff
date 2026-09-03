@@ -12,6 +12,7 @@ import (
 	"github.com/mmoehabb/dbdiff/internal/adapters/text"
 	"github.com/mmoehabb/dbdiff/internal/application"
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
+	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 	"github.com/mmoehabb/dbdiff/internal/ports"
 )
 
@@ -22,7 +23,47 @@ var (
 	output           string
 	allowDestructive bool
 	quiet            bool
+	tables           []string
+	dataFlag         bool
 )
+
+func filterDatabase(db *schema.Database, allowedTables []string) *schema.Database {
+	if len(allowedTables) == 0 {
+		return db
+	}
+
+	allowedMap := make(map[string]bool)
+	for _, t := range allowedTables {
+		allowedMap[t] = true
+	}
+
+	filteredDB := &schema.Database{
+		Name:    db.Name,
+		Schemas: make(map[string]*schema.Schema),
+	}
+
+	for schemaName, s := range db.Schemas {
+		filteredSchema := &schema.Schema{
+			Name:   s.Name,
+			Tables: make(map[string]*schema.Table),
+		}
+
+		hasTables := false
+		for tableName, t := range s.Tables {
+			fullTableName := fmt.Sprintf("%s.%s", schemaName, tableName)
+			if allowedMap[fullTableName] {
+				filteredSchema.Tables[tableName] = t
+				hasTables = true
+			}
+		}
+
+		if hasTables {
+			filteredDB.Schemas[schemaName] = filteredSchema
+		}
+	}
+
+	return filteredDB
+}
 
 var compareCmd = &cobra.Command{
 	Use:   "compare",
@@ -53,6 +94,9 @@ var compareCmd = &cobra.Command{
 			os.Exit(2)
 		}
 
+		sourceSchema = filterDatabase(sourceSchema, tables)
+		targetSchema = filterDatabase(targetSchema, tables)
+
 		if !quiet {
 			fmt.Fprintln(os.Stderr, "Comparing schemas...")
 		}
@@ -64,7 +108,23 @@ var compareCmd = &cobra.Command{
 
 		plan := result.Plan
 
-		hasDifferences := len(plan.SchemaOperations) > 0
+		if dataFlag {
+			if !quiet {
+				fmt.Fprintln(os.Stderr, "Comparing data...")
+			}
+			sourceDataReader := mssql.NewMSSQLDataReader(source)
+			targetDataReader := mssql.NewMSSQLDataReader(target)
+			dataDiffer := diff.NewDataDiffer(sourceDataReader, targetDataReader)
+
+			dataOps, err := dataDiffer.CompareData(ctx, sourceSchema, targetSchema)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error comparing data: %v\n", err)
+				os.Exit(2)
+			}
+			plan.DataOperations = dataOps
+		}
+
+		hasDifferences := len(plan.SchemaOperations) > 0 || len(plan.DataOperations) > 0
 
 		// Handle destructive operations
 		if plan.HasDestructiveOperations() {
@@ -80,6 +140,14 @@ var compareCmd = &cobra.Command{
 					}
 				}
 				plan.SchemaOperations = filteredOps
+
+				filteredDataOps := []diff.Operation{}
+				for _, op := range plan.DataOperations {
+					if !op.IsDestructive() {
+						filteredDataOps = append(filteredDataOps, op)
+					}
+				}
+				plan.DataOperations = filteredDataOps
 			}
 		}
 
@@ -133,6 +201,8 @@ func init() {
 	compareCmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default is stdout)")
 	compareCmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "Allow destructive operations like DROP TABLE")
 	compareCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress messages")
+	compareCmd.Flags().StringSliceVar(&tables, "tables", []string{}, "Comma-separated list of tables to include (e.g., dbo.users,dbo.orders)")
+	compareCmd.Flags().BoolVar(&dataFlag, "data", false, "Include data migration in comparison")
 
 	compareCmd.MarkFlagRequired("source")
 	compareCmd.MarkFlagRequired("target")
