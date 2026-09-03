@@ -22,9 +22,18 @@ type operationWrapper struct {
 }
 
 func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (string, error) {
-	wrappedOps := make([]operationWrapper, 0, len(plan.SchemaOperations))
+	wrappedSchemaOps := make([]operationWrapper, 0, len(plan.SchemaOperations))
 	for _, op := range plan.SchemaOperations {
-		wrappedOps = append(wrappedOps, operationWrapper{
+		wrappedSchemaOps = append(wrappedSchemaOps, operationWrapper{
+			Type:          string(op.OperationType()),
+			IsDestructive: op.IsDestructive(),
+			Data:          op,
+		})
+	}
+
+	wrappedDataOps := make([]operationWrapper, 0, len(plan.DataOperations))
+	for _, op := range plan.DataOperations {
+		wrappedDataOps = append(wrappedDataOps, operationWrapper{
 			Type:          string(op.OperationType()),
 			IsDestructive: op.IsDestructive(),
 			Data:          op,
@@ -32,7 +41,8 @@ func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 	}
 
 	output := map[string]interface{}{
-		"operations": wrappedOps,
+		"schema_operations": wrappedSchemaOps,
+		"data_operations":   wrappedDataOps,
 	}
 
 	bytes, err := json.MarshalIndent(output, "", "  ")

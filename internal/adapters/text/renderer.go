@@ -18,9 +18,20 @@ func NewTextRenderer() *TextRenderer {
 func (r *TextRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (string, error) {
 	var builder strings.Builder
 
-	for _, op := range plan.SchemaOperations {
-		builder.WriteString(r.renderOperation(op))
-		builder.WriteString("\n")
+	if len(plan.SchemaOperations) > 0 {
+		builder.WriteString("Schema Operations:\n")
+		for _, op := range plan.SchemaOperations {
+			builder.WriteString(r.renderOperation(op))
+			builder.WriteString("\n")
+		}
+	}
+
+	if len(plan.DataOperations) > 0 {
+		builder.WriteString("\nData Operations:\n")
+		for _, op := range plan.DataOperations {
+			builder.WriteString(r.renderOperation(op))
+			builder.WriteString("\n")
+		}
 	}
 
 	return builder.String(), nil
@@ -66,6 +77,12 @@ func (r *TextRenderer) renderOperation(op diff.Operation) string {
 		return fmt.Sprintf("+ CREATE INDEX %s ON %s.%s", idxName, o.SchemaName, o.TableName)
 	case diff.DropIndexOperation:
 		return fmt.Sprintf("- DROP INDEX %s ON %s.%s", o.IndexName, o.SchemaName, o.TableName)
+	case diff.InsertDataOperation:
+		return fmt.Sprintf("+ INSERT DATA ROW INTO %s.%s", o.SchemaName, o.TableName)
+	case diff.UpdateDataOperation:
+		return fmt.Sprintf("~ UPDATE DATA ROW IN %s.%s", o.SchemaName, o.TableName)
+	case diff.DeleteDataOperation:
+		return fmt.Sprintf("- DELETE DATA ROW FROM %s.%s", o.SchemaName, o.TableName)
 	default:
 		return fmt.Sprintf("? UNKNOWN OPERATION: %T", op)
 	}
