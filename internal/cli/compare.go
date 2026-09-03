@@ -94,6 +94,26 @@ var compareCmd = &cobra.Command{
 			os.Exit(2)
 		}
 
+		if len(tables) > 0 {
+			for _, tableReq := range tables {
+				found := false
+				for schemaName, s := range sourceSchema.Schemas {
+					for tableName := range s.Tables {
+						if fmt.Sprintf("%s.%s", schemaName, tableName) == tableReq {
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+				if !found {
+					fmt.Fprintf(os.Stderr, "\033[33mWarning: Table %s was requested but not found in the source database.\033[0m\n", tableReq)
+				}
+			}
+		}
+
 		sourceSchema = filterDatabase(sourceSchema, tables)
 		targetSchema = filterDatabase(targetSchema, tables)
 
