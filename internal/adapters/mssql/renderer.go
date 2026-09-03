@@ -33,6 +33,21 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 		}
 	}
 
+	if len(plan.DataOperations) > 0 {
+		builder.WriteString("-- Data Operations\n\n")
+		for _, op := range plan.DataOperations {
+			sql, err := r.renderOperation(op)
+			if err != nil {
+				return "", err
+			}
+			if sql != "" {
+				builder.WriteString(sql)
+				builder.WriteString("\n")
+			}
+		}
+		builder.WriteString("\n")
+	}
+
 	builder.WriteString("COMMIT TRANSACTION;\n")
 
 	return builder.String(), nil
@@ -105,8 +120,93 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		return fmt.Sprintf("CREATE %sINDEX [%s] ON [%s].[%s] (%s);", unique, idxName, o.SchemaName, o.TableName, strings.Join(cols, ", ")), nil
 	case diff.DropIndexOperation:
 		return fmt.Sprintf("DROP INDEX [%s] ON [%s].[%s];", o.IndexName, o.SchemaName, o.TableName), nil
+	case diff.InsertDataOperation:
+		return r.renderInsertData(o)
+	case diff.UpdateDataOperation:
+		return r.renderUpdateData(o)
+	case diff.DeleteDataOperation:
+		return r.renderDeleteData(o)
 	default:
 		return fmt.Sprintf("-- Unknown operation type: %T", op), nil
+	}
+}
+
+func (r *MSSQLRenderer) renderInsertData(o diff.InsertDataOperation) (string, error) {
+	var cols []string
+	var vals []string
+
+	// Sort columns to ensure deterministic output
+	var keys []string
+	for k := range o.Row {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		cols = append(cols, fmt.Sprintf("[%s]", k))
+		vals = append(vals, formatValue(o.Row[k]))
+	}
+
+	return fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
+		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", ")), nil
+}
+
+func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, error) {
+	var sets []string
+
+	var keys []string
+	for k := range o.Updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
+		sets = append(sets, fmt.Sprintf("[%s] = %s", k, formatValue(o.Updates[k])))
+	}
+
+	var wheres []string
+	var pkKeys []string
+	for k := range o.PrimaryKey {
+		pkKeys = append(pkKeys, k)
+	}
+	sort.Strings(pkKeys)
+
+	for _, k := range pkKeys {
+		wheres = append(wheres, fmt.Sprintf("[%s] = %s", k, formatValue(o.PrimaryKey[k])))
+	}
+
+	return fmt.Sprintf("UPDATE [%s].[%s] SET %s WHERE %s;",
+		o.SchemaName, o.TableName, strings.Join(sets, ", "), strings.Join(wheres, " AND ")), nil
+}
+
+func (r *MSSQLRenderer) renderDeleteData(o diff.DeleteDataOperation) (string, error) {
+	var wheres []string
+
+	var pkKeys []string
+	for k := range o.PrimaryKey {
+		pkKeys = append(pkKeys, k)
+	}
+	sort.Strings(pkKeys)
+
+	for _, k := range pkKeys {
+		wheres = append(wheres, fmt.Sprintf("[%s] = %s", k, formatValue(o.PrimaryKey[k])))
+	}
+
+	return fmt.Sprintf("DELETE FROM [%s].[%s] WHERE %s;",
+		o.SchemaName, o.TableName, strings.Join(wheres, " AND ")), nil
+}
+
+func formatValue(val interface{}) string {
+	if val == nil {
+		return "NULL"
+	}
+	switch v := val.(type) {
+	case string:
+		return fmt.Sprintf("N'%s'", strings.ReplaceAll(v, "'", "''"))
+	case []byte:
+		return fmt.Sprintf("0x%X", v)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
 }
 

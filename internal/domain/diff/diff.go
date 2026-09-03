@@ -12,12 +12,17 @@ type SchemaDiff struct {
 // MigrationPlan represents the ordered operations to migrate the target schema to the source schema.
 type MigrationPlan struct {
 	SchemaOperations []Operation
-	// DataOperations could be added here in the future
+	DataOperations   []Operation
 }
 
 // HasDestructiveOperations returns true if the plan contains any destructive operations.
 func (p *MigrationPlan) HasDestructiveOperations() bool {
 	for _, op := range p.SchemaOperations {
+		if op.IsDestructive() {
+			return true
+		}
+	}
+	for _, op := range p.DataOperations {
 		if op.IsDestructive() {
 			return true
 		}
@@ -29,6 +34,11 @@ func (p *MigrationPlan) HasDestructiveOperations() bool {
 func (p *MigrationPlan) GetDestructiveOperations() []Operation {
 	var destructive []Operation
 	for _, op := range p.SchemaOperations {
+		if op.IsDestructive() {
+			destructive = append(destructive, op)
+		}
+	}
+	for _, op := range p.DataOperations {
 		if op.IsDestructive() {
 			destructive = append(destructive, op)
 		}
