@@ -120,6 +120,81 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		return fmt.Sprintf("CREATE %sINDEX [%s] ON [%s].[%s] (%s);", unique, idxName, o.SchemaName, o.TableName, strings.Join(cols, ", ")), nil
 	case diff.DropIndexOperation:
 		return fmt.Sprintf("DROP INDEX [%s] ON [%s].[%s];", o.IndexName, o.SchemaName, o.TableName), nil
+
+	case diff.CreateViewOperation:
+		return o.View.Definition, nil
+	case diff.DropViewOperation:
+		return fmt.Sprintf("DROP VIEW [%s].[%s];", o.SchemaName, o.ViewName), nil
+	case diff.AlterViewOperation:
+		return fmt.Sprintf("DROP VIEW [%s].[%s];\nGO\n%s", o.SchemaName, o.View.Name, o.View.Definition), nil
+	case diff.CreateProcedureOperation:
+		return o.Procedure.Definition, nil
+	case diff.DropProcedureOperation:
+		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];", o.SchemaName, o.ProcedureName), nil
+	case diff.AlterProcedureOperation:
+		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\nGO\n%s", o.SchemaName, o.Procedure.Name, o.Procedure.Definition), nil
+	case diff.CreateFunctionOperation:
+		return o.Function.Definition, nil
+	case diff.DropFunctionOperation:
+		return fmt.Sprintf("DROP FUNCTION [%s].[%s];", o.SchemaName, o.FunctionName), nil
+	case diff.AlterFunctionOperation:
+		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\nGO\n%s", o.SchemaName, o.Function.Name, o.Function.Definition), nil
+	case diff.CreateTriggerOperation:
+		return o.Trigger.Definition, nil
+	case diff.DropTriggerOperation:
+		return fmt.Sprintf("DROP TRIGGER [%s].[%s];", o.SchemaName, o.TriggerName), nil
+	case diff.AlterTriggerOperation:
+		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\nGO\n%s", o.SchemaName, o.Trigger.Name, o.Trigger.Definition), nil
+	case diff.CreateSynonymOperation:
+		return fmt.Sprintf("CREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
+	case diff.DropSynonymOperation:
+		return fmt.Sprintf("DROP SYNONYM [%s].[%s];", o.SchemaName, o.SynonymName), nil
+	case diff.AlterSynonymOperation:
+		return fmt.Sprintf("DROP SYNONYM [%s].[%s];\nGO\nCREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
+	case diff.CreateSequenceOperation:
+		return fmt.Sprintf("CREATE SEQUENCE [%s].[%s] START WITH %d INCREMENT BY %d MINVALUE %d MAXVALUE %d;", o.SchemaName, o.Sequence.Name, o.Sequence.StartValue, o.Sequence.Increment, o.Sequence.MinValue, o.Sequence.MaxValue), nil
+	case diff.DropSequenceOperation:
+		return fmt.Sprintf("DROP SEQUENCE [%s].[%s];", o.SchemaName, o.SequenceName), nil
+	case diff.AlterSequenceOperation:
+		return fmt.Sprintf("ALTER SEQUENCE [%s].[%s] RESTART WITH %d INCREMENT BY %d MINVALUE %d MAXVALUE %d;", o.SchemaName, o.Sequence.Name, o.Sequence.StartValue, o.Sequence.Increment, o.Sequence.MinValue, o.Sequence.MaxValue), nil
+	case diff.CreatePartitionFunctionOperation:
+		return fmt.Sprintf("CREATE PARTITION FUNCTION [%s] (%s) AS RANGE LEFT FOR VALUES (%s);", o.PartitionFunction.Name, o.PartitionFunction.InputParameterType, strings.Join(o.PartitionFunction.BoundaryValues, ", ")), nil
+	case diff.DropPartitionFunctionOperation:
+		return fmt.Sprintf("DROP PARTITION FUNCTION [%s];", o.PartitionFunctionName), nil
+	case diff.AlterPartitionFunctionOperation:
+		return fmt.Sprintf("DROP PARTITION FUNCTION [%s];\nGO\nCREATE PARTITION FUNCTION [%s] (%s) AS RANGE LEFT FOR VALUES (%s);", o.PartitionFunction.Name, o.PartitionFunction.Name, o.PartitionFunction.InputParameterType, strings.Join(o.PartitionFunction.BoundaryValues, ", ")), nil
+	case diff.AddExtendedPropertyOperation:
+		if o.Level.Level0Type != "" {
+			return fmt.Sprintf("EXEC sys.sp_addextendedproperty @name=N'%s', @value=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Value, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
+		}
+		return fmt.Sprintf("EXEC sys.sp_addextendedproperty @name=N'%s', @value=N'%s';", o.Name, o.Value), nil
+	case diff.DropExtendedPropertyOperation:
+		if o.Level.Level0Type != "" {
+			return fmt.Sprintf("EXEC sys.sp_dropextendedproperty @name=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
+		}
+		return fmt.Sprintf("EXEC sys.sp_dropextendedproperty @name=N'%s';", o.Name), nil
+	case diff.AlterExtendedPropertyOperation:
+		if o.Level.Level0Type != "" {
+			return fmt.Sprintf("EXEC sys.sp_updateextendedproperty @name=N'%s', @value=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Value, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
+		}
+		return fmt.Sprintf("EXEC sys.sp_updateextendedproperty @name=N'%s', @value=N'%s';", o.Name, o.Value), nil
+	case diff.CreatePartitionSchemeOperation:
+		return fmt.Sprintf("CREATE PARTITION SCHEME [%s] AS PARTITION [%s] TO ([%s]);", o.PartitionScheme.Name, o.PartitionScheme.PartitionFunction, strings.Join(o.PartitionScheme.FileGroups, "], [")), nil
+	case diff.DropPartitionSchemeOperation:
+		return fmt.Sprintf("DROP PARTITION SCHEME [%s];", o.PartitionSchemeName), nil
+	case diff.AlterPartitionSchemeOperation:
+		return fmt.Sprintf("ALTER PARTITION SCHEME [%s] NEXT USED [%s];", o.PartitionScheme.Name, o.PartitionScheme.FileGroups[len(o.PartitionScheme.FileGroups)-1]), nil
+	case diff.AlterTablePropertiesOperation:
+		var builder strings.Builder
+		if o.Table.IsSystemVersioned {
+			builder.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = %s));\n", o.SchemaName, o.TableName, o.Table.HistoryTable))
+		} else {
+			builder.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] SET (SYSTEM_VERSIONING = OFF);\n", o.SchemaName, o.TableName))
+		}
+		if o.Table.PartitionScheme != "" {
+			builder.WriteString(fmt.Sprintf("-- TODO: Partition existing table [%s].[%s] on column [%s] using scheme [%s] (Requires dropping and recreating clustered index)\n", o.SchemaName, o.TableName, o.Table.PartitionColumn, o.Table.PartitionScheme))
+		}
+		return builder.String(), nil
 	case diff.InsertDataOperation:
 		return r.renderInsertData(o)
 	case diff.UpdateDataOperation:
