@@ -2,32 +2,45 @@ package schema
 
 // Table represents a database table.
 type Table struct {
-	Name        string
-	Columns     map[string]*Column
-	PrimaryKey  *PrimaryKey
-	ForeignKeys map[string]*ForeignKey
-	Indexes     map[string]*Index
+	Name               string
+	Columns            map[string]*Column
+	PrimaryKey         *PrimaryKey
+	ForeignKeys        map[string]*ForeignKey
+	Indexes            map[string]*Index
+	Triggers           map[string]*Trigger
+	ExtendedProperties map[string]string
+
+	IsSystemVersioned bool
+	HistoryTable      string
+	ValidFromColumn   string
+	ValidToColumn     string
+
+	IsReplicated bool
+
+	PartitionScheme string
+	PartitionColumn string
+	FileGroup       string
 }
 
-// PrimaryKey represents a primary key constraint.
 type PrimaryKey struct {
-	Name    string
-	Columns []string
+	Name               string
+	Columns            []string
+	ExtendedProperties map[string]string
 }
 
-// ForeignKey represents a foreign key constraint.
 type ForeignKey struct {
-	Name       string
-	Columns    []string
-	RefTable   string
-	RefColumns []string
-	OnUpdate   string
-	OnDelete   string
+	Name               string
+	Columns            []string
+	RefTable           string
+	RefColumns         []string
+	OnUpdate           string
+	OnDelete           string
+	ExtendedProperties map[string]string
 }
 
-// Index represents an index on a table.
 type Index struct {
-	Name     string
-	Columns  []string
-	IsUnique bool
+	Name               string
+	Columns            []string
+	IsUnique           bool
+	ExtendedProperties map[string]string
 }
