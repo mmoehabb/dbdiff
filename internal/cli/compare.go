@@ -19,6 +19,7 @@ import (
 var (
 	source           string
 	target           string
+	driver           string
 	format           string
 	output           string
 	allowDestructive bool
@@ -69,6 +70,11 @@ var compareCmd = &cobra.Command{
 	Use:   "compare",
 	Short: "Compares two databases and outputs the differences or a migration script",
 	Run: func(cmd *cobra.Command, args []string) {
+		if driver != "mssql" {
+			fmt.Fprintln(os.Stderr, "Sorry, this DBMS name either wrong or not supported yet. You can list the supported DBMS with the command: dbdiff list-drivers")
+			os.Exit(2)
+		}
+
 		ctx := context.Background()
 
 		// Initialize introspectors
@@ -217,6 +223,7 @@ var compareCmd = &cobra.Command{
 func init() {
 	compareCmd.Flags().StringVarP(&source, "source", "s", "", "Source database connection string (required)")
 	compareCmd.Flags().StringVarP(&target, "target", "t", "", "Target database connection string (required)")
+	compareCmd.Flags().StringVarP(&driver, "driver", "d", "", "DBMS driver (e.g. mssql) (required)")
 	compareCmd.Flags().StringVarP(&format, "format", "f", "sql", "Output format (sql, json, text)")
 	compareCmd.Flags().StringVarP(&output, "output", "o", "", "Output file (default is stdout)")
 	compareCmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "Allow destructive operations like DROP TABLE")
@@ -226,6 +233,7 @@ func init() {
 
 	compareCmd.MarkFlagRequired("source")
 	compareCmd.MarkFlagRequired("target")
+	compareCmd.MarkFlagRequired("driver")
 
 	rootCmd.AddCommand(compareCmd)
 }
