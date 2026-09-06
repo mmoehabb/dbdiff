@@ -7,13 +7,13 @@ import (
 )
 
 // Version can be set at build time
-var Version = "v0.0.4"
+var Version = "v0.1.0"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the version of dbdiff",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("dbdiff version %s\n", Version)
+		fmt.Printf("dbdiff %s\n", Version)
 	},
 }
 
