@@ -1,6 +1,6 @@
 # dbdiff
 
-`dbdiff` is a database-diff engine built to compare database schemas and generate migration scripts. It is designed to be database-agnostic at its core, enabling comparisons and potential extensions to various relational database systems like SQL Server, PostgreSQL, and MySQL.
+`dbdiff` (pronounced "piksa-lee-tos") is a database-agnostic schema diffing engine and CLI tool written in Go. It compares database schemas and generates migration scripts. `dbdiff` is designed to be database-agnostic at its core, enabling comparisons and potential extensions to various relational database systems like SQL Server, PostgreSQL, and MySQL.
 
 Currently, `dbdiff` provides the foundational architecture mapped out in [V1_PLAN.md](V1_PLAN.md) including standard models for schemas, migrations, diffing operations, and a skeletal implementation of an MSSQL adapter.
 
@@ -17,13 +17,13 @@ go install github.com/mmoehabb/dbdiff@latest
 To compile the code manually during development:
 
 ```bash
-go build ./...
+go build -o dbdiff main.go
 ```
 
 To run the application directly without building a persistent binary:
 
 ```bash
-go run ./cmd/dbdiff
+go run main.go
 ```
 
 To run tests:
