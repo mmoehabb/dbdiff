@@ -252,8 +252,15 @@ func (r *MSSQLRenderer) renderInsertData(o diff.InsertDataOperation) (string, er
 		vals = append(vals, formatValue(o.Row[k]))
 	}
 
-	return fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
-		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", ")), nil
+	insertStmt := fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
+		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", "))
+
+	if o.HasIdentity {
+		return fmt.Sprintf("SET IDENTITY_INSERT [%s].[%s] ON;\n%s\nSET IDENTITY_INSERT [%s].[%s] OFF;",
+			o.SchemaName, o.TableName, insertStmt, o.SchemaName, o.TableName), nil
+	}
+
+	return insertStmt, nil
 }
 
 func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, error) {

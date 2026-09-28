@@ -7,9 +7,10 @@ const (
 )
 
 type InsertDataOperation struct {
-	SchemaName string
-	TableName  string
-	Row        map[string]interface{}
+	SchemaName  string
+	TableName   string
+	Row         map[string]interface{}
+	HasIdentity bool
 }
 
 func (o InsertDataOperation) OperationType() OperationType { return InsertData }
