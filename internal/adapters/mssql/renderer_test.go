@@ -4,10 +4,38 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
+
+func TestFormatValue(t *testing.T) {
+	tm, _ := time.Parse(time.RFC3339Nano, "2026-05-16T19:14:03.58Z")
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"nil", nil, "NULL"},
+		{"string", "hello'world", "N'hello''world'"},
+		{"int", 123, "123"},
+		{"float", 123.45, "123.45"},
+		{"bool true", true, "1"},
+		{"bool false", false, "0"},
+		{"time", tm, "'2026-05-16 19:14:03.58'"},
+		{"bytes", []byte{0xDE, 0xAD}, "0xDEAD"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatValue(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
 
 func ptr[T any](v T) *T {
 	return &v

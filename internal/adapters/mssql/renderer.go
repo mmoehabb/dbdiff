@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
@@ -323,6 +324,13 @@ func formatValue(val interface{}) string {
 		return fmt.Sprintf("N'%s'", strings.ReplaceAll(v, "'", "''"))
 	case []byte:
 		return fmt.Sprintf("0x%X", v)
+	case time.Time:
+		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.9999999"))
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
 	default:
 		return fmt.Sprintf("%v", v)
 	}
