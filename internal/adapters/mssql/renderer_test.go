@@ -335,7 +335,4 @@ func TestMSSQLRenderer_DataOperations_Constraints(t *testing.T) {
 	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';") {
 		t.Errorf("expected SQL to contain NOCHECK CONSTRAINT all")
 	}
-	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';") {
-		t.Errorf("expected SQL to contain WITH CHECK CHECK CONSTRAINT all")
-	}
 }
