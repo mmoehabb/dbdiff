@@ -7,7 +7,7 @@ import (
 )
 
 // Version can be set at build time
-var Version = "v0.1.0"
+var Version = "v0.1.1"
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
