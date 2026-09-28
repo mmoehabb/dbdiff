@@ -49,13 +49,22 @@ func (d *DataDiffer) CompareData(ctx context.Context, sourceSchema, targetSchema
 				return nil, fmt.Errorf("error reading target data for %s.%s: %w", schemaName, tableName, err)
 			}
 
+			hasIdentity := false
+			for _, col := range tTable.Columns {
+				if col.Identity {
+					hasIdentity = true
+					break
+				}
+			}
+
 			if sTable.PrimaryKey == nil || len(sTable.PrimaryKey.Columns) == 0 {
 				// No primary key, generate INSERTS for all source data
 				for _, row := range sourceData {
 					dataOperations = append(dataOperations, InsertDataOperation{
-						SchemaName: schemaName,
-						TableName:  tableName,
-						Row:        row,
+						SchemaName:  schemaName,
+						TableName:   tableName,
+						Row:         row,
+						HasIdentity: hasIdentity,
 					})
 				}
 			} else {
@@ -79,9 +88,10 @@ func (d *DataDiffer) CompareData(ctx context.Context, sourceSchema, targetSchema
 					if !exists {
 						// Missing in target -> INSERT
 						dataOperations = append(dataOperations, InsertDataOperation{
-							SchemaName: schemaName,
-							TableName:  tableName,
-							Row:        sRow,
+							SchemaName:  schemaName,
+							TableName:   tableName,
+							Row:         sRow,
+							HasIdentity: hasIdentity,
 						})
 					} else {
 						// Exists in target -> Check for UPDATE

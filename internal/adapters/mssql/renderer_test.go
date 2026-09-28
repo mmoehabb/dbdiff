@@ -4,10 +4,38 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
+
+func TestFormatValue(t *testing.T) {
+	tm, _ := time.Parse(time.RFC3339Nano, "2026-05-16T19:14:03.58Z")
+	tests := []struct {
+		name     string
+		input    interface{}
+		expected string
+	}{
+		{"nil", nil, "NULL"},
+		{"string", "hello'world", "N'hello''world'"},
+		{"int", 123, "123"},
+		{"float", 123.45, "123.45"},
+		{"bool true", true, "1"},
+		{"bool false", false, "0"},
+		{"time", tm, "'2026-05-16 19:14:03.58'"},
+		{"bytes", []byte{0xDE, 0xAD}, "0xDEAD"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatValue(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected %s, got %s", tt.expected, result)
+			}
+		})
+	}
+}
 
 func ptr[T any](v T) *T {
 	return &v
@@ -148,6 +176,43 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 	}
 }
 
+func TestMSSQLRenderer_RenderInsertData(t *testing.T) {
+	renderer := NewMSSQLRenderer()
+
+	op := diff.InsertDataOperation{
+		SchemaName: "dbo",
+		TableName:  "users",
+		Row: map[string]interface{}{
+			"id":   1,
+			"name": "Alice",
+		},
+		HasIdentity: true,
+	}
+
+	plan := &diff.MigrationPlan{
+		DataOperations: []diff.Operation{op},
+	}
+
+	sql, err := renderer.Render(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expectedPrefix := "SET IDENTITY_INSERT [dbo].[users] ON;"
+	expectedInsert := "INSERT INTO [dbo].[users] ([id], [name]) VALUES (1, N'Alice');"
+	expectedSuffix := "SET IDENTITY_INSERT [dbo].[users] OFF;"
+
+	if !strings.Contains(sql, expectedPrefix) {
+		t.Errorf("expected SQL to contain:\n%s\n\nActual SQL:\n%s", expectedPrefix, sql)
+	}
+	if !strings.Contains(sql, expectedInsert) {
+		t.Errorf("expected SQL to contain:\n%s\n\nActual SQL:\n%s", expectedInsert, sql)
+	}
+	if !strings.Contains(sql, expectedSuffix) {
+		t.Errorf("expected SQL to contain:\n%s\n\nActual SQL:\n%s", expectedSuffix, sql)
+	}
+}
+
 func TestMSSQLRenderer_Render_DataTypeMapping(t *testing.T) {
 	renderer := NewMSSQLRenderer()
 
@@ -242,5 +307,35 @@ func TestMSSQLRenderer_Render_DataTypeMapping(t *testing.T) {
 		if !strings.Contains(sql, part) {
 			t.Errorf("expected SQL to contain:\n%s\n\nActual SQL:\n%s", part, sql)
 		}
+	}
+}
+
+func TestMSSQLRenderer_DataOperations_Constraints(t *testing.T) {
+	renderer := NewMSSQLRenderer()
+
+	op := diff.InsertDataOperation{
+		SchemaName: "dbo",
+		TableName:  "users",
+		Row: map[string]interface{}{
+			"id":   1,
+			"name": "Alice",
+		},
+		HasIdentity: false,
+	}
+
+	plan := &diff.MigrationPlan{
+		DataOperations: []diff.Operation{op},
+	}
+
+	sql, err := renderer.Render(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';") {
+		t.Errorf("expected SQL to contain NOCHECK CONSTRAINT all")
+	}
+	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';") {
+		t.Errorf("expected SQL to contain WITH CHECK CHECK CONSTRAINT all")
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
@@ -34,7 +35,8 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 	}
 
 	if len(plan.DataOperations) > 0 {
-		builder.WriteString("-- Data Operations\n\n")
+		builder.WriteString("-- Data Operations\n")
+		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';\n\n")
 		for _, op := range plan.DataOperations {
 			sql, err := r.renderOperation(op)
 			if err != nil {
@@ -46,6 +48,7 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 			}
 		}
 		builder.WriteString("\n")
+		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';\n\n")
 	}
 
 	builder.WriteString("COMMIT TRANSACTION;\n")
@@ -251,8 +254,15 @@ func (r *MSSQLRenderer) renderInsertData(o diff.InsertDataOperation) (string, er
 		vals = append(vals, formatValue(o.Row[k]))
 	}
 
-	return fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
-		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", ")), nil
+	insertStmt := fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
+		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", "))
+
+	if o.HasIdentity {
+		return fmt.Sprintf("SET IDENTITY_INSERT [%s].[%s] ON;\n%s\nSET IDENTITY_INSERT [%s].[%s] OFF;",
+			o.SchemaName, o.TableName, insertStmt, o.SchemaName, o.TableName), nil
+	}
+
+	return insertStmt, nil
 }
 
 func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, error) {
@@ -323,6 +333,13 @@ func formatValue(val interface{}) string {
 		return fmt.Sprintf("N'%s'", strings.ReplaceAll(v, "'", "''"))
 	case []byte:
 		return fmt.Sprintf("0x%X", v)
+	case time.Time:
+		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.9999999"))
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
 	default:
 		return fmt.Sprintf("%v", v)
 	}
