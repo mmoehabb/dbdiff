@@ -48,7 +48,6 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 			}
 		}
 		builder.WriteString("\n")
-		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';\n\n")
 	}
 
 	builder.WriteString("COMMIT TRANSACTION;\n")

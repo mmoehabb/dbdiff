@@ -25,10 +25,11 @@ var (
 	allowDestructive bool
 	quiet            bool
 	tables           []string
+	exclude          bool
 	dataFlag         bool
 )
 
-func filterDatabase(db *schema.Database, allowedTables []string) *schema.Database {
+func filterDatabase(db *schema.Database, allowedTables []string, exclude bool) *schema.Database {
 	if len(allowedTables) == 0 {
 		return db
 	}
@@ -52,7 +53,11 @@ func filterDatabase(db *schema.Database, allowedTables []string) *schema.Databas
 		hasTables := false
 		for tableName, t := range s.Tables {
 			fullTableName := fmt.Sprintf("%s.%s", schemaName, tableName)
-			if allowedMap[fullTableName] {
+			inAllowedList := allowedMap[fullTableName]
+
+			// If exclude is true, we want tables NOT in the list.
+			// If exclude is false, we want tables IN the list.
+			if (exclude && !inAllowedList) || (!exclude && inAllowedList) {
 				filteredSchema.Tables[tableName] = t
 				hasTables = true
 			}
@@ -72,6 +77,11 @@ var compareCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		if driver != "mssql" {
 			fmt.Fprintln(os.Stderr, "Sorry, this DBMS name either wrong or not supported yet. You can list the supported DBMS with the command: dbdiff list-drivers")
+			os.Exit(2)
+		}
+
+		if exclude && len(tables) == 0 {
+			fmt.Fprintln(os.Stderr, "Error: --exclude can only be used when --tables is provided")
 			os.Exit(2)
 		}
 
@@ -114,14 +124,14 @@ var compareCmd = &cobra.Command{
 						break
 					}
 				}
-				if !found {
+				if !found && !exclude {
 					fmt.Fprintf(os.Stderr, "\033[33mWarning: Table %s was requested but not found in the source database.\033[0m\n", tableReq)
 				}
 			}
 		}
 
-		sourceSchema = filterDatabase(sourceSchema, tables)
-		targetSchema = filterDatabase(targetSchema, tables)
+		sourceSchema = filterDatabase(sourceSchema, tables, exclude)
+		targetSchema = filterDatabase(targetSchema, tables, exclude)
 
 		if !quiet {
 			fmt.Fprintln(os.Stderr, "Comparing schemas...")
@@ -229,6 +239,7 @@ func init() {
 	compareCmd.Flags().BoolVar(&allowDestructive, "allow-destructive", false, "Allow destructive operations like DROP TABLE")
 	compareCmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Suppress progress messages")
 	compareCmd.Flags().StringSliceVar(&tables, "tables", []string{}, "Comma-separated list of tables to include (e.g., dbo.users,dbo.orders)")
+	compareCmd.Flags().BoolVar(&exclude, "exclude", false, "Exclude the tables specified in --tables instead of including them")
 	compareCmd.Flags().BoolVar(&dataFlag, "data", false, "Include data migration in comparison")
 
 	compareCmd.MarkFlagRequired("source")
