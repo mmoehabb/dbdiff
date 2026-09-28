@@ -153,8 +153,9 @@ func (i *MSSQLIntrospector) loadColumns(ctx context.Context, db *sql.DB, databas
 		var isNullable, isIdentity, isComputed bool
 		var computedExpr sql.NullString
 		var defaultValue sql.NullString
+		var defaultName sql.NullString
 
-		if err := rows.Scan(&schemaName, &tableName, &columnName, &typeName, &maxLength, &precision, &scale, &isNullable, &isIdentity, &isComputed, &computedExpr, &defaultValue); err != nil {
+		if err := rows.Scan(&schemaName, &tableName, &columnName, &typeName, &maxLength, &precision, &scale, &isNullable, &isIdentity, &isComputed, &computedExpr, &defaultValue, &defaultName); err != nil {
 			return err
 		}
 
@@ -174,6 +175,9 @@ func (i *MSSQLIntrospector) loadColumns(ctx context.Context, db *sql.DB, databas
 
 		if defaultValue.Valid {
 			col.Default = parseDefaultValue(defaultValue.String)
+			if defaultName.Valid {
+				col.Default.Name = defaultName.String
+			}
 		}
 
 		table.Columns[columnName] = col

@@ -56,7 +56,7 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 	switch o := op.(type) {
 	case diff.CreateSchemaOperation:
-		return fmt.Sprintf("CREATE SCHEMA [%s];", o.SchemaName), nil
+		return fmt.Sprintf("EXEC('CREATE SCHEMA [%s]');", o.SchemaName), nil
 	case diff.DropSchemaOperation:
 		return fmt.Sprintf("DROP SCHEMA [%s];", o.SchemaName), nil
 	case diff.CreateTableOperation:
@@ -69,8 +69,23 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 	case diff.DropColumnOperation:
 		return fmt.Sprintf("ALTER TABLE [%s].[%s] DROP COLUMN [%s];", o.SchemaName, o.TableName, o.ColumnName), nil
 	case diff.AlterColumnOperation:
-		colDef := r.renderColumnDefinition(o.Column)
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] ALTER COLUMN %s;", o.SchemaName, o.TableName, colDef), nil
+		typeStr := r.renderDataType(o.Column.Type, o.Column.Name)
+		nullStr := "NOT NULL"
+		if o.Column.Nullable {
+			nullStr = "NULL"
+		}
+
+		var alterSql strings.Builder
+		if o.OldDefaultName != "" {
+			alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s];\n", o.SchemaName, o.TableName, o.OldDefaultName))
+		}
+
+		alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] ALTER COLUMN [%s] %s %s;", o.SchemaName, o.TableName, o.Column.Name, typeStr, nullStr))
+
+		if o.Column.Default != nil {
+			alterSql.WriteString(fmt.Sprintf("\nALTER TABLE [%s].[%s] ADD DEFAULT %s FOR [%s];", o.SchemaName, o.TableName, o.Column.Default.Value, o.Column.Name))
+		}
+		return alterSql.String(), nil
 	case diff.AddPrimaryKeyOperation:
 		cols := make([]string, len(o.PrimaryKey.Columns))
 		for i, c := range o.PrimaryKey.Columns {
@@ -98,10 +113,24 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		}
 		fkName := o.ForeignKey.Name
 		if fkName == "" {
-			fkName = fmt.Sprintf("FK_%s_%s", o.TableName, o.ForeignKey.RefTable)
+			cleanRefTable := strings.ReplaceAll(o.ForeignKey.RefTable, "[", "")
+			cleanRefTable = strings.ReplaceAll(cleanRefTable, "]", "")
+			cleanRefTable = strings.ReplaceAll(cleanRefTable, ".", "_")
+			fkName = fmt.Sprintf("FK_%s_%s", o.TableName, cleanRefTable)
 		}
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES [%s].[%s] (%s);",
-			o.SchemaName, o.TableName, fkName, strings.Join(cols, ", "), o.SchemaName, o.ForeignKey.RefTable, strings.Join(refCols, ", ")), nil
+
+		// If RefTable already has [schema].[table] format, use it as is.
+		// Otherwise, qualify it with o.SchemaName.
+		refTableEscaped := o.ForeignKey.RefTable
+		if !strings.Contains(refTableEscaped, ".") {
+			refTableEscaped = fmt.Sprintf("[%s].[%s]", o.SchemaName, refTableEscaped)
+		} else if !strings.HasPrefix(refTableEscaped, "[") {
+			parts := strings.SplitN(refTableEscaped, ".", 2)
+			refTableEscaped = fmt.Sprintf("[%s].[%s]", parts[0], parts[1])
+		}
+
+		return fmt.Sprintf("ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES %s (%s);",
+			o.SchemaName, o.TableName, fkName, strings.Join(cols, ", "), refTableEscaped, strings.Join(refCols, ", ")), nil
 	case diff.DropForeignKeyOperation:
 		return fmt.Sprintf("ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s];", o.SchemaName, o.TableName, o.ForeignKeyName), nil
 	case diff.CreateIndexOperation:
@@ -122,29 +151,29 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		return fmt.Sprintf("DROP INDEX [%s] ON [%s].[%s];", o.IndexName, o.SchemaName, o.TableName), nil
 
 	case diff.CreateViewOperation:
-		return o.View.Definition, nil
+		return execWrap(o.View.Definition), nil
 	case diff.DropViewOperation:
 		return fmt.Sprintf("DROP VIEW [%s].[%s];", o.SchemaName, o.ViewName), nil
 	case diff.AlterViewOperation:
-		return fmt.Sprintf("DROP VIEW [%s].[%s];\nGO\n%s", o.SchemaName, o.View.Name, o.View.Definition), nil
+		return fmt.Sprintf("DROP VIEW [%s].[%s];\n%s", o.SchemaName, o.View.Name, execWrap(o.View.Definition)), nil
 	case diff.CreateProcedureOperation:
-		return o.Procedure.Definition, nil
+		return execWrap(o.Procedure.Definition), nil
 	case diff.DropProcedureOperation:
 		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];", o.SchemaName, o.ProcedureName), nil
 	case diff.AlterProcedureOperation:
-		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\nGO\n%s", o.SchemaName, o.Procedure.Name, o.Procedure.Definition), nil
+		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\n%s", o.SchemaName, o.Procedure.Name, execWrap(o.Procedure.Definition)), nil
 	case diff.CreateFunctionOperation:
-		return o.Function.Definition, nil
+		return execWrap(o.Function.Definition), nil
 	case diff.DropFunctionOperation:
 		return fmt.Sprintf("DROP FUNCTION [%s].[%s];", o.SchemaName, o.FunctionName), nil
 	case diff.AlterFunctionOperation:
-		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\nGO\n%s", o.SchemaName, o.Function.Name, o.Function.Definition), nil
+		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\n%s", o.SchemaName, o.Function.Name, execWrap(o.Function.Definition)), nil
 	case diff.CreateTriggerOperation:
-		return o.Trigger.Definition, nil
+		return execWrap(o.Trigger.Definition), nil
 	case diff.DropTriggerOperation:
 		return fmt.Sprintf("DROP TRIGGER [%s].[%s];", o.SchemaName, o.TriggerName), nil
 	case diff.AlterTriggerOperation:
-		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\nGO\n%s", o.SchemaName, o.Trigger.Name, o.Trigger.Definition), nil
+		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\n%s", o.SchemaName, o.Trigger.Name, execWrap(o.Trigger.Definition)), nil
 	case diff.CreateSynonymOperation:
 		return fmt.Sprintf("CREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
 	case diff.DropSynonymOperation:
@@ -269,6 +298,20 @@ func (r *MSSQLRenderer) renderDeleteData(o diff.DeleteDataOperation) (string, er
 
 	return fmt.Sprintf("DELETE FROM [%s].[%s] WHERE %s;",
 		o.SchemaName, o.TableName, strings.Join(wheres, " AND ")), nil
+}
+
+func ensureSemicolon(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasSuffix(s, ";") {
+		s += ";"
+	}
+	return s
+}
+
+func execWrap(s string) string {
+	s = ensureSemicolon(s)
+	escaped := strings.ReplaceAll(s, "'", "''")
+	return fmt.Sprintf("EXEC('%s');", escaped)
 }
 
 func formatValue(val interface{}) string {

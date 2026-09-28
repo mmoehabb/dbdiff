@@ -125,7 +125,7 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 
 	expectedParts := []string{
 		"BEGIN TRANSACTION;",
-		"CREATE SCHEMA [dbo];",
+		"EXEC('CREATE SCHEMA [dbo]');",
 		"CREATE TABLE [dbo].[users] (\n    [email] NVARCHAR(255) NULL,\n    [id] INT NOT NULL IDENTITY(1,1),\n    [meta] NVARCHAR(MAX) CHECK (ISJSON([meta]) > 0) NULL\n);",
 		"ALTER TABLE [dbo].[users] ADD [active] BIT NOT NULL DEFAULT 1;",
 		"ALTER TABLE [dbo].[users] ALTER COLUMN [email] NVARCHAR(500) NOT NULL;",
