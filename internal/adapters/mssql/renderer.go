@@ -145,29 +145,29 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		return fmt.Sprintf("DROP INDEX [%s] ON [%s].[%s];", o.IndexName, o.SchemaName, o.TableName), nil
 
 	case diff.CreateViewOperation:
-		return ensureSemicolon(o.View.Definition), nil
+		return execWrap(o.View.Definition), nil
 	case diff.DropViewOperation:
 		return fmt.Sprintf("DROP VIEW [%s].[%s];", o.SchemaName, o.ViewName), nil
 	case diff.AlterViewOperation:
-		return fmt.Sprintf("DROP VIEW [%s].[%s];\nGO\n%s", o.SchemaName, o.View.Name, ensureSemicolon(o.View.Definition)), nil
+		return fmt.Sprintf("DROP VIEW [%s].[%s];\n%s", o.SchemaName, o.View.Name, execWrap(o.View.Definition)), nil
 	case diff.CreateProcedureOperation:
-		return ensureSemicolon(o.Procedure.Definition), nil
+		return execWrap(o.Procedure.Definition), nil
 	case diff.DropProcedureOperation:
 		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];", o.SchemaName, o.ProcedureName), nil
 	case diff.AlterProcedureOperation:
-		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\nGO\n%s", o.SchemaName, o.Procedure.Name, ensureSemicolon(o.Procedure.Definition)), nil
+		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\n%s", o.SchemaName, o.Procedure.Name, execWrap(o.Procedure.Definition)), nil
 	case diff.CreateFunctionOperation:
-		return ensureSemicolon(o.Function.Definition), nil
+		return execWrap(o.Function.Definition), nil
 	case diff.DropFunctionOperation:
 		return fmt.Sprintf("DROP FUNCTION [%s].[%s];", o.SchemaName, o.FunctionName), nil
 	case diff.AlterFunctionOperation:
-		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\nGO\n%s", o.SchemaName, o.Function.Name, ensureSemicolon(o.Function.Definition)), nil
+		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\n%s", o.SchemaName, o.Function.Name, execWrap(o.Function.Definition)), nil
 	case diff.CreateTriggerOperation:
-		return ensureSemicolon(o.Trigger.Definition), nil
+		return execWrap(o.Trigger.Definition), nil
 	case diff.DropTriggerOperation:
 		return fmt.Sprintf("DROP TRIGGER [%s].[%s];", o.SchemaName, o.TriggerName), nil
 	case diff.AlterTriggerOperation:
-		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\nGO\n%s", o.SchemaName, o.Trigger.Name, ensureSemicolon(o.Trigger.Definition)), nil
+		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\n%s", o.SchemaName, o.Trigger.Name, execWrap(o.Trigger.Definition)), nil
 	case diff.CreateSynonymOperation:
 		return fmt.Sprintf("CREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
 	case diff.DropSynonymOperation:
@@ -300,6 +300,12 @@ func ensureSemicolon(s string) string {
 		s += ";"
 	}
 	return s
+}
+
+func execWrap(s string) string {
+	s = ensureSemicolon(s)
+	escaped := strings.ReplaceAll(s, "'", "''")
+	return fmt.Sprintf("EXEC('%s');", escaped)
 }
 
 func formatValue(val interface{}) string {
