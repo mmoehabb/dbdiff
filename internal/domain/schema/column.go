@@ -20,6 +20,7 @@ type DataType struct {
 	Scale     *int
 }
 type DefaultExpression struct {
+	Name  string
 	Value string
 }
 type Column struct {

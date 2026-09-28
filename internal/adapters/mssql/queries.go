@@ -22,7 +22,8 @@ SELECT
     c.is_identity AS IsIdentity,
     c.is_computed AS IsComputed,
     cc.definition AS ComputedExpr,
-    dc.definition AS DefaultValue
+    dc.definition AS DefaultValue,
+    dc.name AS DefaultName
 FROM sys.columns c
 JOIN sys.tables t ON c.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id

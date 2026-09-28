@@ -82,9 +82,10 @@ func (o DropSchemaOperation) OperationType() OperationType { return DropSchema }
 func (o DropSchemaOperation) IsDestructive() bool          { return true }
 
 type AlterColumnOperation struct {
-	SchemaName string
-	TableName  string
-	Column     schema.Column
+	SchemaName     string
+	TableName      string
+	Column         schema.Column
+	OldDefaultName string
 }
 
 func (o AlterColumnOperation) OperationType() OperationType { return AlterColumn }

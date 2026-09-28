@@ -75,11 +75,17 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 			nullStr = "NULL"
 		}
 
-		alterSql := fmt.Sprintf("ALTER TABLE [%s].[%s] ALTER COLUMN [%s] %s %s;", o.SchemaName, o.TableName, o.Column.Name, typeStr, nullStr)
-		if o.Column.Default != nil {
-			alterSql += fmt.Sprintf("\nALTER TABLE [%s].[%s] ADD DEFAULT %s FOR [%s];", o.SchemaName, o.TableName, o.Column.Default.Value, o.Column.Name)
+		var alterSql strings.Builder
+		if o.OldDefaultName != "" {
+			alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s];\n", o.SchemaName, o.TableName, o.OldDefaultName))
 		}
-		return alterSql, nil
+
+		alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] ALTER COLUMN [%s] %s %s;", o.SchemaName, o.TableName, o.Column.Name, typeStr, nullStr))
+
+		if o.Column.Default != nil {
+			alterSql.WriteString(fmt.Sprintf("\nALTER TABLE [%s].[%s] ADD DEFAULT %s FOR [%s];", o.SchemaName, o.TableName, o.Column.Default.Value, o.Column.Name))
+		}
+		return alterSql.String(), nil
 	case diff.AddPrimaryKeyOperation:
 		cols := make([]string, len(o.PrimaryKey.Columns))
 		for i, c := range o.PrimaryKey.Columns {

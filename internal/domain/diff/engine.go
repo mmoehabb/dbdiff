@@ -184,10 +184,15 @@ func (d *SchemaDiffer) compareColumns(schemaName string, sourceTable, targetTabl
 		} else {
 			// Compare existing column
 			if !d.isColumnEqual(sourceCol, targetCol) {
+				oldDefaultName := ""
+				if targetCol.Default != nil {
+					oldDefaultName = targetCol.Default.Name
+				}
 				plan.SchemaOperations = append(plan.SchemaOperations, AlterColumnOperation{
-					SchemaName: schemaName,
-					TableName:  sourceTable.Name,
-					Column:     *sourceCol,
+					SchemaName:     schemaName,
+					TableName:      sourceTable.Name,
+					Column:         *sourceCol,
+					OldDefaultName: oldDefaultName,
 				})
 			}
 		}
