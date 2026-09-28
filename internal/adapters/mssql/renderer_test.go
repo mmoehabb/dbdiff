@@ -309,3 +309,33 @@ func TestMSSQLRenderer_Render_DataTypeMapping(t *testing.T) {
 		}
 	}
 }
+
+func TestMSSQLRenderer_DataOperations_Constraints(t *testing.T) {
+	renderer := NewMSSQLRenderer()
+
+	op := diff.InsertDataOperation{
+		SchemaName: "dbo",
+		TableName:  "users",
+		Row: map[string]interface{}{
+			"id":   1,
+			"name": "Alice",
+		},
+		HasIdentity: false,
+	}
+
+	plan := &diff.MigrationPlan{
+		DataOperations: []diff.Operation{op},
+	}
+
+	sql, err := renderer.Render(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';") {
+		t.Errorf("expected SQL to contain NOCHECK CONSTRAINT all")
+	}
+	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';") {
+		t.Errorf("expected SQL to contain WITH CHECK CHECK CONSTRAINT all")
+	}
+}

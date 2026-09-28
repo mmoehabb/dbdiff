@@ -35,7 +35,8 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 	}
 
 	if len(plan.DataOperations) > 0 {
-		builder.WriteString("-- Data Operations\n\n")
+		builder.WriteString("-- Data Operations\n")
+		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';\n\n")
 		for _, op := range plan.DataOperations {
 			sql, err := r.renderOperation(op)
 			if err != nil {
@@ -47,6 +48,7 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 			}
 		}
 		builder.WriteString("\n")
+		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? WITH CHECK CHECK CONSTRAINT all';\n\n")
 	}
 
 	builder.WriteString("COMMIT TRANSACTION;\n")
