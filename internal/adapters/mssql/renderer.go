@@ -21,23 +21,59 @@ func NewMSSQLRenderer() *MSSQLRenderer {
 func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (string, error) {
 	var builder strings.Builder
 
-	builder.WriteString("BEGIN TRANSACTION;\n\n")
+	if len(plan.SchemaOperations) > 0 {
+		builder.WriteString("BEGIN TRANSACTION;\n\n")
 
-	for _, op := range plan.SchemaOperations {
-		sql, err := r.renderOperation(op)
-		if err != nil {
-			return "", err
+		for _, op := range plan.SchemaOperations {
+			sql, err := r.renderOperation(op)
+			if err != nil {
+				return "", err
+			}
+			if sql != "" {
+				builder.WriteString(sql)
+				builder.WriteString("\n\n")
+			}
 		}
-		if sql != "" {
-			builder.WriteString(sql)
-			builder.WriteString("\n\n")
-		}
+
+		builder.WriteString("COMMIT TRANSACTION;\n")
 	}
 
 	if len(plan.DataOperations) > 0 {
+		if len(plan.SchemaOperations) > 0 {
+			builder.WriteString("\n")
+		}
 		builder.WriteString("-- Data Operations\n")
 		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';\n\n")
+
+		var currentTable string
+		var currentSchema string
+
 		for _, op := range plan.DataOperations {
+			var opSchema, opTable string
+
+			switch o := op.(type) {
+			case diff.InsertDataOperation:
+				opSchema = o.SchemaName
+				opTable = o.TableName
+			case diff.UpdateDataOperation:
+				opSchema = o.SchemaName
+				opTable = o.TableName
+			case diff.DeleteDataOperation:
+				opSchema = o.SchemaName
+				opTable = o.TableName
+			}
+
+			// If we switched to a new table, commit the previous transaction and start a new one
+			if opSchema != currentSchema || opTable != currentTable {
+				if currentTable != "" {
+					builder.WriteString("COMMIT TRANSACTION;\n\n")
+				}
+				builder.WriteString(fmt.Sprintf("-- Data for [%s].[%s]\n", opSchema, opTable))
+				builder.WriteString("BEGIN TRANSACTION;\n\n")
+				currentSchema = opSchema
+				currentTable = opTable
+			}
+
 			sql, err := r.renderOperation(op)
 			if err != nil {
 				return "", err
@@ -47,10 +83,11 @@ func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (s
 				builder.WriteString("\n")
 			}
 		}
-		builder.WriteString("\n")
-	}
 
-	builder.WriteString("COMMIT TRANSACTION;\n")
+		if currentTable != "" {
+			builder.WriteString("\nCOMMIT TRANSACTION;\n")
+		}
+	}
 
 	return builder.String(), nil
 }
