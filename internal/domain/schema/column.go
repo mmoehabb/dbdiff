@@ -8,6 +8,7 @@ const (
 	TypeDecimal  DataTypeKind = "decimal"
 	TypeBoolean  DataTypeKind = "boolean"
 	TypeDateTime DataTypeKind = "datetime"
+	TypeDate     DataTypeKind = "date"
 	TypeUUID     DataTypeKind = "uuid"
 	TypeBinary   DataTypeKind = "binary"
 	TypeJSON     DataTypeKind = "json"
