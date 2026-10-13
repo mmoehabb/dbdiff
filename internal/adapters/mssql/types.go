@@ -34,7 +34,9 @@ func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale in
 		dt.Scale = &scale
 	case "bit":
 		dt.Kind = schema.TypeBoolean
-	case "datetime", "datetime2", "date", "time", "smalldatetime", "datetimeoffset":
+	case "date":
+		dt.Kind = schema.TypeDate
+	case "datetime", "datetime2", "time", "smalldatetime", "datetimeoffset":
 		dt.Kind = schema.TypeDateTime
 	case "uniqueidentifier":
 		dt.Kind = schema.TypeUUID

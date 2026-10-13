@@ -370,6 +370,9 @@ func formatValue(val interface{}) string {
 	case []byte:
 		return fmt.Sprintf("0x%X", v)
 	case time.Time:
+		if v.Hour() == 0 && v.Minute() == 0 && v.Second() == 0 && v.Nanosecond() == 0 {
+			return fmt.Sprintf("'%s'", v.Format("2006-01-02"))
+		}
 		return fmt.Sprintf("'%s'", v.Format("2006-01-02 15:04:05.9999999"))
 	case bool:
 		if v {
@@ -452,6 +455,8 @@ func (r *MSSQLRenderer) renderDataType(dt schema.DataType, colName string) strin
 		return fmt.Sprintf("DECIMAL(%d, %d)", prec, scale)
 	case schema.TypeBoolean:
 		return "BIT"
+	case schema.TypeDate:
+		return "DATE"
 	case schema.TypeDateTime:
 		return "DATETIME2"
 	case schema.TypeUUID:
