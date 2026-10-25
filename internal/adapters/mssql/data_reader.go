@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"time"
 
-	_ "github.com/microsoft/go-mssqldb"
+	mssqldb "github.com/microsoft/go-mssqldb"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 )
 
@@ -28,7 +30,7 @@ func (r *MSSQLDataReader) ReadTableData(ctx context.Context, schemaName string, 
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	query := fmt.Sprintf("SELECT * FROM [%s].[%s]", schemaName, table.Name)
+	query := fmt.Sprintf("SELECT * FROM [%s].[%s]", escapeName(schemaName), escapeName(table.Name))
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query table data: %w", err)
@@ -59,9 +61,39 @@ func (r *MSSQLDataReader) ReadTableData(ctx context.Context, schemaName string, 
 
 			b, ok := val.([]byte)
 			if ok {
-				row[col] = string(b)
+				if c := table.Columns[col]; c != nil && c.Type.Kind == schema.TypeUUID {
+					var id mssqldb.UniqueIdentifier
+					if err := id.Scan(b); err != nil {
+						return nil, fmt.Errorf("decode UUID %s: %w", col, err)
+					}
+					row[col] = id.String()
+				} else if c := table.Columns[col]; c != nil && c.Type.Kind == schema.TypeBinary {
+					row[col] = append([]byte(nil), b...)
+				} else {
+					row[col] = string(b)
+				}
 			} else {
 				row[col] = val
+			}
+		}
+		for name, col := range table.Columns {
+			value := row[name]
+			if tm, ok := value.(time.Time); ok {
+				switch col.Type.NativeType {
+				case "datetimeoffset":
+					row[name] = schema.TemporalValue{Type: "datetimeoffset", Text: tm.Format("2006-01-02T15:04:05.9999999Z07:00")}
+				case "time":
+					row[name] = schema.TemporalValue{Type: "time", Text: tm.Format("15:04:05.9999999")}
+				}
+			}
+			if text, ok := value.(string); ok && (col.Type.NativeType == "decimal" || col.Type.NativeType == "numeric" || col.Type.NativeType == "money" || col.Type.NativeType == "smallmoney") {
+				if strings.Contains(text, ".") {
+					text = strings.TrimRight(strings.TrimRight(text, "0"), ".")
+				}
+				if text == "-0" {
+					text = "0"
+				}
+				row[name] = text
 			}
 		}
 		data = append(data, row)

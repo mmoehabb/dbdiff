@@ -59,9 +59,10 @@ func (o AddColumnOperation) OperationType() OperationType { return AddColumn }
 func (o AddColumnOperation) IsDestructive() bool          { return false }
 
 type DropColumnOperation struct {
-	SchemaName string
-	TableName  string
-	ColumnName string
+	DefaultName string
+	SchemaName  string
+	TableName   string
+	ColumnName  string
 }
 
 func (o DropColumnOperation) OperationType() OperationType { return DropColumn }
@@ -86,10 +87,12 @@ type AlterColumnOperation struct {
 	TableName      string
 	Column         schema.Column
 	OldDefaultName string
+	OldColumn      *schema.Column
+	Destructive    bool
 }
 
 func (o AlterColumnOperation) OperationType() OperationType { return AlterColumn }
-func (o AlterColumnOperation) IsDestructive() bool          { return false }
+func (o AlterColumnOperation) IsDestructive() bool          { return o.Destructive }
 
 type AddPrimaryKeyOperation struct {
 	SchemaName string
@@ -101,8 +104,9 @@ func (o AddPrimaryKeyOperation) OperationType() OperationType { return AddPrimar
 func (o AddPrimaryKeyOperation) IsDestructive() bool          { return false }
 
 type DropPrimaryKeyOperation struct {
-	SchemaName string
-	TableName  string
+	ConstraintName string
+	SchemaName     string
+	TableName      string
 }
 
 func (o DropPrimaryKeyOperation) OperationType() OperationType { return DropPrimaryKey }
@@ -136,9 +140,10 @@ func (o CreateIndexOperation) OperationType() OperationType { return CreateIndex
 func (o CreateIndexOperation) IsDestructive() bool          { return false }
 
 type DropIndexOperation struct {
-	SchemaName string
-	TableName  string
-	IndexName  string
+	IsConstraint bool
+	SchemaName   string
+	TableName    string
+	IndexName    string
 }
 
 func (o DropIndexOperation) OperationType() OperationType { return DropIndex }
@@ -373,7 +378,7 @@ type ExtendedPropertyLevel struct {
 }
 type AddExtendedPropertyOperation struct {
 	Name  string
-	Value string
+	Value schema.PropertyValue
 	Level ExtendedPropertyLevel
 }
 
@@ -390,7 +395,7 @@ func (o DropExtendedPropertyOperation) IsDestructive() bool          { return tr
 
 type AlterExtendedPropertyOperation struct {
 	Name  string
-	Value string
+	Value schema.PropertyValue
 	Level ExtendedPropertyLevel
 }
 
@@ -405,3 +410,19 @@ type AlterTablePropertiesOperation struct {
 
 func (o AlterTablePropertiesOperation) OperationType() OperationType { return AlterTableProperties }
 func (o AlterTablePropertiesOperation) IsDestructive() bool          { return false }
+
+const AddCheck OperationType = "add_check"
+const DropCheck OperationType = "drop_check"
+
+type AddCheckOperation struct {
+	SchemaName, TableName string
+	Check                 schema.CheckConstraint
+}
+
+func (o AddCheckOperation) OperationType() OperationType { return AddCheck }
+func (o AddCheckOperation) IsDestructive() bool          { return false }
+
+type DropCheckOperation struct{ SchemaName, TableName, ConstraintName string }
+
+func (o DropCheckOperation) OperationType() OperationType { return DropCheck }
+func (o DropCheckOperation) IsDestructive() bool          { return true }

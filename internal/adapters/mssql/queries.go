@@ -23,11 +23,13 @@ SELECT
     c.is_computed AS IsComputed,
     cc.definition AS ComputedExpr,
     dc.definition AS DefaultValue,
-    dc.name AS DefaultName
+    dc.name AS DefaultName, c.collation_name, c.column_id, c.generated_always_type, cc.is_persisted,
+ CAST(idc.seed_value AS nvarchar(100)), CAST(idc.increment_value AS nvarchar(100))
 FROM sys.columns c
 JOIN sys.tables t ON c.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
-JOIN sys.types ty ON c.system_type_id = ty.system_type_id AND ty.user_type_id = ty.system_type_id
+JOIN sys.types ty ON c.user_type_id = ty.user_type_id
+LEFT JOIN sys.identity_columns idc ON c.object_id=idc.object_id AND c.column_id=idc.column_id
 LEFT JOIN sys.computed_columns cc ON c.object_id = cc.object_id AND c.column_id = cc.column_id
 LEFT JOIN sys.default_constraints dc ON c.default_object_id = dc.object_id
 WHERE s.name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA', 'db_accessadmin', 'db_backupoperator', 'db_datareader', 'db_datawriter', 'db_ddladmin', 'db_denydatareader', 'db_denydatawriter', 'db_owner', 'db_securityadmin', 'dtproperties');
@@ -38,7 +40,7 @@ SELECT
     s.name AS SchemaName,
     t.name AS TableName,
     i.name AS KeyName,
-    c.name AS ColumnName
+    c.name AS ColumnName, i.type, ic.is_descending_key
 FROM sys.indexes i
 JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
 JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
@@ -46,7 +48,7 @@ JOIN sys.tables t ON i.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
 WHERE i.is_primary_key = 1
 AND s.name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA', 'db_accessadmin', 'db_backupoperator', 'db_datareader', 'db_datawriter', 'db_ddladmin', 'db_denydatareader', 'db_denydatawriter', 'db_owner', 'db_securityadmin', 'dtproperties')
-ORDER BY i.name, ic.key_ordinal;
+ORDER BY s.name,t.name,i.name,ic.key_ordinal,ic.index_column_id;
 `
 
 const queryForeignKeys = `
@@ -78,13 +80,14 @@ SELECT
     t.name AS TableName,
     i.name AS IndexName,
     c.name AS ColumnName,
-    i.is_unique AS IsUnique
+    i.is_unique AS IsUnique, i.type, ic.key_ordinal, ic.is_descending_key, ic.is_included_column,
+ i.filter_definition, i.is_unique_constraint, i.is_disabled, i.fill_factor, i.is_padded, i.ignore_dup_key, i.allow_row_locks, i.allow_page_locks
 FROM sys.indexes i
 JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id
 JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
 JOIN sys.tables t ON i.object_id = t.object_id
 JOIN sys.schemas s ON t.schema_id = s.schema_id
-WHERE i.is_primary_key = 0 AND i.type > 0 AND i.is_unique_constraint = 0
+WHERE i.is_primary_key = 0 AND i.type IN (1,2)
 AND s.name NOT IN ('sys', 'guest', 'INFORMATION_SCHEMA', 'db_accessadmin', 'db_backupoperator', 'db_datareader', 'db_datawriter', 'db_ddladmin', 'db_denydatareader', 'db_denydatawriter', 'db_owner', 'db_securityadmin', 'dtproperties')
-ORDER BY i.name, ic.key_ordinal;
+ORDER BY s.name,t.name,i.name,ic.key_ordinal,ic.index_column_id;
 `

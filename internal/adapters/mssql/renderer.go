@@ -3,6 +3,7 @@ package mssql
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -19,250 +20,180 @@ func NewMSSQLRenderer() *MSSQLRenderer {
 }
 
 func (r *MSSQLRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (string, error) {
-	var builder strings.Builder
-
-	if len(plan.SchemaOperations) > 0 {
-		builder.WriteString("BEGIN TRANSACTION;\n\n")
-
-		for _, op := range plan.SchemaOperations {
-			sql, err := r.renderOperation(op)
-			if err != nil {
-				return "", err
-			}
-			if sql != "" {
-				builder.WriteString(sql)
-				builder.WriteString("\n\n")
-			}
-		}
-
-		builder.WriteString("COMMIT TRANSACTION;\n")
+	if plan == nil {
+		return "", fmt.Errorf("migration plan is required")
 	}
-
-	if len(plan.DataOperations) > 0 {
-		if len(plan.SchemaOperations) > 0 {
-			builder.WriteString("\n")
-		}
-		builder.WriteString("-- Data Operations\n")
-		builder.WriteString("EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';\n\n")
-
-		var currentTable string
-		var currentSchema string
-
-		for _, op := range plan.DataOperations {
-			var opSchema, opTable string
-
-			switch o := op.(type) {
-			case diff.InsertDataOperation:
-				opSchema = o.SchemaName
-				opTable = o.TableName
-			case diff.UpdateDataOperation:
-				opSchema = o.SchemaName
-				opTable = o.TableName
-			case diff.DeleteDataOperation:
-				opSchema = o.SchemaName
-				opTable = o.TableName
-			}
-
-			// If we switched to a new table, commit the previous transaction and start a new one
-			if opSchema != currentSchema || opTable != currentTable {
-				if currentTable != "" {
-					builder.WriteString("COMMIT TRANSACTION;\n\n")
-				}
-				builder.WriteString(fmt.Sprintf("-- Data for [%s].[%s]\n", opSchema, opTable))
-				builder.WriteString("BEGIN TRANSACTION;\n\n")
-				currentSchema = opSchema
-				currentTable = opTable
-			}
-
-			sql, err := r.renderOperation(op)
-			if err != nil {
-				return "", err
-			}
-			if sql != "" {
-				builder.WriteString(sql)
-				builder.WriteString("\n")
-			}
-		}
-
-		if currentTable != "" {
-			builder.WriteString("\nCOMMIT TRANSACTION;\n")
-		}
+	warnings := ""
+	for _, d := range plan.Omitted {
+		warnings += "-- Omitted " + strings.ReplaceAll(strings.ReplaceAll(d.ID+": "+d.Reason, "\r", " "), "\n", " ") + "\n"
 	}
-
-	return builder.String(), nil
+	var statements []string
+	for _, op := range append(append([]diff.Operation{}, plan.SchemaOperations...), plan.DataOperations...) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		sql, err := r.renderOperation(op)
+		if err != nil {
+			return "", err
+		}
+		// Separate compilation scopes permit later statements to reference newly added columns.
+		statements = append(statements, "EXEC sys.sp_executesql "+literal(sql)+";")
+	}
+	if len(statements) == 0 {
+		return warnings, nil
+	}
+	return warnings + "IF @@TRANCOUNT <> 0 THROW 50000, 'Run migration outside an existing transaction', 1;\nSET XACT_ABORT ON;\nSET ANSI_NULLS ON;\nSET QUOTED_IDENTIFIER ON;\nSET ANSI_PADDING ON;\nSET ANSI_WARNINGS ON;\nSET ARITHABORT ON;\nSET CONCAT_NULL_YIELDS_NULL ON;\nSET NUMERIC_ROUNDABORT OFF;\nBEGIN TRY\nBEGIN TRANSACTION;\n\n" + strings.Join(statements, "\n\n") + "\n\nCOMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\nIF XACT_STATE() <> 0 ROLLBACK TRANSACTION;\nTHROW;\nEND CATCH;\n", nil
 }
 
+func quote(name string) string       { return "[" + strings.ReplaceAll(name, "]", "]]") + "]" }
+func qualified(sn, tn string) string { return quote(sn) + "." + quote(tn) }
+func literal(s string) string        { return "N'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func columns(names []string, descending []bool) string {
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = quote(n)
+		if i < len(descending) && descending[i] {
+			out[i] += " DESC"
+		}
+	}
+	return strings.Join(out, ", ")
+}
 func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 	switch o := op.(type) {
 	case diff.CreateSchemaOperation:
-		return fmt.Sprintf("EXEC('CREATE SCHEMA [%s]');", o.SchemaName), nil
+		return "CREATE SCHEMA " + quote(o.SchemaName) + ";", nil
 	case diff.DropSchemaOperation:
-		return fmt.Sprintf("DROP SCHEMA [%s];", o.SchemaName), nil
+		return "DROP SCHEMA " + quote(o.SchemaName) + ";", nil
 	case diff.CreateTableOperation:
 		return r.renderCreateTable(o)
 	case diff.DropTableOperation:
-		return fmt.Sprintf("DROP TABLE [%s].[%s];", o.SchemaName, o.TableName), nil
+		return "DROP TABLE " + qualified(o.SchemaName, o.TableName) + ";", nil
 	case diff.AddColumnOperation:
-		colDef := r.renderColumnDefinition(o.Column)
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] ADD %s;", o.SchemaName, o.TableName, colDef), nil
+		column, err := r.renderColumnDefinition(o.Column)
+		if err != nil {
+			return "", err
+		}
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD " + column + ";", nil
 	case diff.DropColumnOperation:
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] DROP COLUMN [%s];", o.SchemaName, o.TableName, o.ColumnName), nil
+		sql := ""
+		if o.DefaultName != "" {
+			sql = "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP CONSTRAINT " + quote(o.DefaultName) + ";\n"
+		}
+		return sql + "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP COLUMN " + quote(o.ColumnName) + ";", nil
 	case diff.AlterColumnOperation:
-		typeStr := r.renderDataType(o.Column.Type, o.Column.Name)
-		nullStr := "NOT NULL"
-		if o.Column.Nullable {
-			nullStr = "NULL"
-		}
-
-		var alterSql strings.Builder
+		table := qualified(o.SchemaName, o.TableName)
+		sql := ""
 		if o.OldDefaultName != "" {
-			alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s];\n", o.SchemaName, o.TableName, o.OldDefaultName))
+			sql += "ALTER TABLE " + table + " DROP CONSTRAINT " + quote(o.OldDefaultName) + ";\n"
 		}
-
-		alterSql.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] ALTER COLUMN [%s] %s %s;", o.SchemaName, o.TableName, o.Column.Name, typeStr, nullStr))
-
+		if o.OldColumn == nil || !reflect.DeepEqual(o.Column.Type, o.OldColumn.Type) || o.Column.Nullable != o.OldColumn.Nullable || o.Column.Collation != o.OldColumn.Collation {
+			null := "NOT NULL"
+			if o.Column.Nullable {
+				null = "NULL"
+			}
+			collation, err := collationSQL(o.Column.Collation)
+			if err != nil {
+				return "", err
+			}
+			sql += "ALTER TABLE " + table + " ALTER COLUMN " + quote(o.Column.Name) + " " + r.renderDataType(o.Column.Type, o.Column.Name) + collation + " " + null + ";"
+		}
 		if o.Column.Default != nil {
-			alterSql.WriteString(fmt.Sprintf("\nALTER TABLE [%s].[%s] ADD DEFAULT %s FOR [%s];", o.SchemaName, o.TableName, o.Column.Default.Value, o.Column.Name))
+			name := ""
+			if o.Column.Default.Name != "" {
+				name = "CONSTRAINT " + quote(o.Column.Default.Name) + " "
+			}
+			sql += "\nALTER TABLE " + table + " ADD " + name + "DEFAULT " + o.Column.Default.Value + " FOR " + quote(o.Column.Name) + ";"
 		}
-		return alterSql.String(), nil
+		return sql, nil
 	case diff.AddPrimaryKeyOperation:
-		cols := make([]string, len(o.PrimaryKey.Columns))
-		for i, c := range o.PrimaryKey.Columns {
-			cols[i] = fmt.Sprintf("[%s]", c)
+		name := o.PrimaryKey.Name
+		if name == "" {
+			name = "PK_" + o.TableName
 		}
-		pkName := o.PrimaryKey.Name
-		if pkName == "" {
-			pkName = fmt.Sprintf("PK_%s", o.TableName)
+		kind := "NONCLUSTERED"
+		if o.PrimaryKey.Clustered {
+			kind = "CLUSTERED"
 		}
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] PRIMARY KEY (%s);",
-			o.SchemaName, o.TableName, pkName, strings.Join(cols, ", ")), nil
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD CONSTRAINT " + quote(name) + " PRIMARY KEY " + kind + " (" + columns(o.PrimaryKey.Columns, o.PrimaryKey.Descending) + ");", nil
 	case diff.DropPrimaryKeyOperation:
-		// For DropPrimaryKeyOperation we need to know the PK name, but the engine currently doesn't provide it
-		// We can generate a conventional drop or just put a TODO comment for the user to replace it.
-		// Since we didn't add it in the domain yet, we'll output a placeholder.
-		return fmt.Sprintf("-- TODO: Drop PK on [%s].[%s] (Name unknown)\nALTER TABLE [%s].[%s] DROP CONSTRAINT [PK_%s];", o.SchemaName, o.TableName, o.SchemaName, o.TableName, o.TableName), nil
+		if o.ConstraintName == "" {
+			return "", fmt.Errorf("primary key name missing for %s.%s", o.SchemaName, o.TableName)
+		}
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP CONSTRAINT " + quote(o.ConstraintName) + ";", nil
 	case diff.AddForeignKeyOperation:
-		cols := make([]string, len(o.ForeignKey.Columns))
-		for i, c := range o.ForeignKey.Columns {
-			cols[i] = fmt.Sprintf("[%s]", c)
+		ref, err := referenceName(o.SchemaName, o.ForeignKey.RefTable)
+		if err != nil {
+			return "", err
 		}
-		refCols := make([]string, len(o.ForeignKey.RefColumns))
-		for i, c := range o.ForeignKey.RefColumns {
-			refCols[i] = fmt.Sprintf("[%s]", c)
+		name := o.ForeignKey.Name
+		if name == "" {
+			name = "FK_" + o.TableName + "_" + strings.Join(o.ForeignKey.Columns, "_")
 		}
-		fkName := o.ForeignKey.Name
-		if fkName == "" {
-			cleanRefTable := strings.ReplaceAll(o.ForeignKey.RefTable, "[", "")
-			cleanRefTable = strings.ReplaceAll(cleanRefTable, "]", "")
-			cleanRefTable = strings.ReplaceAll(cleanRefTable, ".", "_")
-			fkName = fmt.Sprintf("FK_%s_%s", o.TableName, cleanRefTable)
+		sql := "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD CONSTRAINT " + quote(name) + " FOREIGN KEY (" + columns(o.ForeignKey.Columns, nil) + ") REFERENCES " + ref + " (" + columns(o.ForeignKey.RefColumns, nil) + ")"
+		for _, action := range []struct{ keyword, value string }{{"DELETE", o.ForeignKey.OnDelete}, {"UPDATE", o.ForeignKey.OnUpdate}} {
+			v := strings.ReplaceAll(strings.ToUpper(action.value), "_", " ")
+			switch v {
+			case "", "NO ACTION":
+			case "CASCADE", "SET NULL", "SET DEFAULT":
+				sql += " ON " + action.keyword + " " + v
+			default:
+				return "", fmt.Errorf("unsupported foreign key action %q", v)
+			}
 		}
-
-		// If RefTable already has [schema].[table] format, use it as is.
-		// Otherwise, qualify it with o.SchemaName.
-		refTableEscaped := o.ForeignKey.RefTable
-		if !strings.Contains(refTableEscaped, ".") {
-			refTableEscaped = fmt.Sprintf("[%s].[%s]", o.SchemaName, refTableEscaped)
-		} else if !strings.HasPrefix(refTableEscaped, "[") {
-			parts := strings.SplitN(refTableEscaped, ".", 2)
-			refTableEscaped = fmt.Sprintf("[%s].[%s]", parts[0], parts[1])
-		}
-
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] ADD CONSTRAINT [%s] FOREIGN KEY (%s) REFERENCES %s (%s);",
-			o.SchemaName, o.TableName, fkName, strings.Join(cols, ", "), refTableEscaped, strings.Join(refCols, ", ")), nil
+		return sql + ";", nil
 	case diff.DropForeignKeyOperation:
-		return fmt.Sprintf("ALTER TABLE [%s].[%s] DROP CONSTRAINT [%s];", o.SchemaName, o.TableName, o.ForeignKeyName), nil
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP CONSTRAINT " + quote(o.ForeignKeyName) + ";", nil
+	case diff.AddCheckOperation:
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD CONSTRAINT " + quote(o.Check.Name) + " CHECK " + o.Check.Definition + ";", nil
+	case diff.DropCheckOperation:
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP CONSTRAINT " + quote(o.ConstraintName) + ";", nil
 	case diff.CreateIndexOperation:
-		cols := make([]string, len(o.Index.Columns))
-		for i, c := range o.Index.Columns {
-			cols[i] = fmt.Sprintf("[%s]", c)
-		}
-		unique := ""
-		if o.Index.IsUnique {
-			unique = "UNIQUE "
-		}
-		idxName := o.Index.Name
-		if idxName == "" {
-			idxName = fmt.Sprintf("IX_%s_%s", o.TableName, strings.Join(o.Index.Columns, "_"))
-		}
-		return fmt.Sprintf("CREATE %sINDEX [%s] ON [%s].[%s] (%s);", unique, idxName, o.SchemaName, o.TableName, strings.Join(cols, ", ")), nil
+		return renderIndex(o)
 	case diff.DropIndexOperation:
-		return fmt.Sprintf("DROP INDEX [%s] ON [%s].[%s];", o.IndexName, o.SchemaName, o.TableName), nil
-
+		if o.IsConstraint {
+			return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " DROP CONSTRAINT " + quote(o.IndexName) + ";", nil
+		}
+		return "DROP INDEX " + quote(o.IndexName) + " ON " + qualified(o.SchemaName, o.TableName) + ";", nil
 	case diff.CreateViewOperation:
-		return execWrap(o.View.Definition), nil
-	case diff.DropViewOperation:
-		return fmt.Sprintf("DROP VIEW [%s].[%s];", o.SchemaName, o.ViewName), nil
+		return moduleSQL(o.View.Definition, o.View.UsesANSI_NULLS, o.View.UsesQuotedIdentifier, o.SchemaName, o.View.Name)
 	case diff.AlterViewOperation:
-		return fmt.Sprintf("DROP VIEW [%s].[%s];\n%s", o.SchemaName, o.View.Name, execWrap(o.View.Definition)), nil
+		return moduleSQL(o.View.Definition, o.View.UsesANSI_NULLS, o.View.UsesQuotedIdentifier, o.SchemaName, o.View.Name)
+	case diff.DropViewOperation:
+		return "DROP VIEW " + qualified(o.SchemaName, o.ViewName) + ";", nil
 	case diff.CreateProcedureOperation:
-		return execWrap(o.Procedure.Definition), nil
-	case diff.DropProcedureOperation:
-		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];", o.SchemaName, o.ProcedureName), nil
+		return moduleSQL(o.Procedure.Definition, o.Procedure.UsesANSI_NULLS, o.Procedure.UsesQuotedIdentifier, o.SchemaName, o.Procedure.Name)
 	case diff.AlterProcedureOperation:
-		return fmt.Sprintf("DROP PROCEDURE [%s].[%s];\n%s", o.SchemaName, o.Procedure.Name, execWrap(o.Procedure.Definition)), nil
+		return moduleSQL(o.Procedure.Definition, o.Procedure.UsesANSI_NULLS, o.Procedure.UsesQuotedIdentifier, o.SchemaName, o.Procedure.Name)
+	case diff.DropProcedureOperation:
+		return "DROP PROCEDURE " + qualified(o.SchemaName, o.ProcedureName) + ";", nil
 	case diff.CreateFunctionOperation:
-		return execWrap(o.Function.Definition), nil
-	case diff.DropFunctionOperation:
-		return fmt.Sprintf("DROP FUNCTION [%s].[%s];", o.SchemaName, o.FunctionName), nil
+		return moduleSQL(o.Function.Definition, o.Function.UsesANSI_NULLS, o.Function.UsesQuotedIdentifier, o.SchemaName, o.Function.Name)
 	case diff.AlterFunctionOperation:
-		return fmt.Sprintf("DROP FUNCTION [%s].[%s];\n%s", o.SchemaName, o.Function.Name, execWrap(o.Function.Definition)), nil
+		return moduleSQL(o.Function.Definition, o.Function.UsesANSI_NULLS, o.Function.UsesQuotedIdentifier, o.SchemaName, o.Function.Name)
+	case diff.DropFunctionOperation:
+		return "DROP FUNCTION " + qualified(o.SchemaName, o.FunctionName) + ";", nil
 	case diff.CreateTriggerOperation:
-		return execWrap(o.Trigger.Definition), nil
-	case diff.DropTriggerOperation:
-		return fmt.Sprintf("DROP TRIGGER [%s].[%s];", o.SchemaName, o.TriggerName), nil
+		return moduleSQL(o.Trigger.Definition, o.Trigger.UsesANSI_NULLS, o.Trigger.UsesQuotedIdentifier, o.SchemaName, o.Trigger.Name)
 	case diff.AlterTriggerOperation:
-		return fmt.Sprintf("DROP TRIGGER [%s].[%s];\n%s", o.SchemaName, o.Trigger.Name, execWrap(o.Trigger.Definition)), nil
+		return moduleSQL(o.Trigger.Definition, o.Trigger.UsesANSI_NULLS, o.Trigger.UsesQuotedIdentifier, o.SchemaName, o.Trigger.Name)
+	case diff.DropTriggerOperation:
+		return "DROP TRIGGER " + qualified(o.SchemaName, o.TriggerName) + ";", nil
 	case diff.CreateSynonymOperation:
-		return fmt.Sprintf("CREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
+		return "CREATE SYNONYM " + qualified(o.SchemaName, o.Synonym.Name) + " FOR " + o.Synonym.TargetObjectName + ";", nil
 	case diff.DropSynonymOperation:
-		return fmt.Sprintf("DROP SYNONYM [%s].[%s];", o.SchemaName, o.SynonymName), nil
-	case diff.AlterSynonymOperation:
-		return fmt.Sprintf("DROP SYNONYM [%s].[%s];\nGO\nCREATE SYNONYM [%s].[%s] FOR %s;", o.SchemaName, o.Synonym.Name, o.SchemaName, o.Synonym.Name, o.Synonym.TargetObjectName), nil
+		return "DROP SYNONYM " + qualified(o.SchemaName, o.SynonymName) + ";", nil
 	case diff.CreateSequenceOperation:
-		return fmt.Sprintf("CREATE SEQUENCE [%s].[%s] START WITH %d INCREMENT BY %d MINVALUE %d MAXVALUE %d;", o.SchemaName, o.Sequence.Name, o.Sequence.StartValue, o.Sequence.Increment, o.Sequence.MinValue, o.Sequence.MaxValue), nil
-	case diff.DropSequenceOperation:
-		return fmt.Sprintf("DROP SEQUENCE [%s].[%s];", o.SchemaName, o.SequenceName), nil
+		return r.sequenceSQL(o.SchemaName, o.Sequence, false), nil
 	case diff.AlterSequenceOperation:
-		return fmt.Sprintf("ALTER SEQUENCE [%s].[%s] RESTART WITH %d INCREMENT BY %d MINVALUE %d MAXVALUE %d;", o.SchemaName, o.Sequence.Name, o.Sequence.StartValue, o.Sequence.Increment, o.Sequence.MinValue, o.Sequence.MaxValue), nil
-	case diff.CreatePartitionFunctionOperation:
-		return fmt.Sprintf("CREATE PARTITION FUNCTION [%s] (%s) AS RANGE LEFT FOR VALUES (%s);", o.PartitionFunction.Name, o.PartitionFunction.InputParameterType, strings.Join(o.PartitionFunction.BoundaryValues, ", ")), nil
-	case diff.DropPartitionFunctionOperation:
-		return fmt.Sprintf("DROP PARTITION FUNCTION [%s];", o.PartitionFunctionName), nil
-	case diff.AlterPartitionFunctionOperation:
-		return fmt.Sprintf("DROP PARTITION FUNCTION [%s];\nGO\nCREATE PARTITION FUNCTION [%s] (%s) AS RANGE LEFT FOR VALUES (%s);", o.PartitionFunction.Name, o.PartitionFunction.Name, o.PartitionFunction.InputParameterType, strings.Join(o.PartitionFunction.BoundaryValues, ", ")), nil
+		return r.sequenceSQL(o.SchemaName, o.Sequence, true), nil
+	case diff.DropSequenceOperation:
+		return "DROP SEQUENCE " + qualified(o.SchemaName, o.SequenceName) + ";", nil
 	case diff.AddExtendedPropertyOperation:
-		if o.Level.Level0Type != "" {
-			return fmt.Sprintf("EXEC sys.sp_addextendedproperty @name=N'%s', @value=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Value, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
-		}
-		return fmt.Sprintf("EXEC sys.sp_addextendedproperty @name=N'%s', @value=N'%s';", o.Name, o.Value), nil
-	case diff.DropExtendedPropertyOperation:
-		if o.Level.Level0Type != "" {
-			return fmt.Sprintf("EXEC sys.sp_dropextendedproperty @name=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
-		}
-		return fmt.Sprintf("EXEC sys.sp_dropextendedproperty @name=N'%s';", o.Name), nil
+		return propertySQL("add", o.Name, o.Value, o.Level)
 	case diff.AlterExtendedPropertyOperation:
-		if o.Level.Level0Type != "" {
-			return fmt.Sprintf("EXEC sys.sp_updateextendedproperty @name=N'%s', @value=N'%s', @level0type=N'%s', @level0name=N'%s', @level1type=N'%s', @level1name=N'%s';", o.Name, o.Value, o.Level.Level0Type, o.Level.Level0Name, o.Level.Level1Type, o.Level.Level1Name), nil
-		}
-		return fmt.Sprintf("EXEC sys.sp_updateextendedproperty @name=N'%s', @value=N'%s';", o.Name, o.Value), nil
-	case diff.CreatePartitionSchemeOperation:
-		return fmt.Sprintf("CREATE PARTITION SCHEME [%s] AS PARTITION [%s] TO ([%s]);", o.PartitionScheme.Name, o.PartitionScheme.PartitionFunction, strings.Join(o.PartitionScheme.FileGroups, "], [")), nil
-	case diff.DropPartitionSchemeOperation:
-		return fmt.Sprintf("DROP PARTITION SCHEME [%s];", o.PartitionSchemeName), nil
-	case diff.AlterPartitionSchemeOperation:
-		return fmt.Sprintf("ALTER PARTITION SCHEME [%s] NEXT USED [%s];", o.PartitionScheme.Name, o.PartitionScheme.FileGroups[len(o.PartitionScheme.FileGroups)-1]), nil
-	case diff.AlterTablePropertiesOperation:
-		var builder strings.Builder
-		if o.Table.IsSystemVersioned {
-			builder.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] SET (SYSTEM_VERSIONING = ON (HISTORY_TABLE = %s));\n", o.SchemaName, o.TableName, o.Table.HistoryTable))
-		} else {
-			builder.WriteString(fmt.Sprintf("ALTER TABLE [%s].[%s] SET (SYSTEM_VERSIONING = OFF);\n", o.SchemaName, o.TableName))
-		}
-		if o.Table.PartitionScheme != "" {
-			builder.WriteString(fmt.Sprintf("-- TODO: Partition existing table [%s].[%s] on column [%s] using scheme [%s] (Requires dropping and recreating clustered index)\n", o.SchemaName, o.TableName, o.Table.PartitionColumn, o.Table.PartitionScheme))
-		}
-		return builder.String(), nil
+		return propertySQL("update", o.Name, o.Value, o.Level)
+	case diff.DropExtendedPropertyOperation:
+		return propertySQL("drop", o.Name, schema.PropertyValue{}, o.Level)
 	case diff.InsertDataOperation:
 		return r.renderInsertData(o)
 	case diff.UpdateDataOperation:
@@ -270,7 +201,7 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 	case diff.DeleteDataOperation:
 		return r.renderDeleteData(o)
 	default:
-		return fmt.Sprintf("-- Unknown operation type: %T", op), nil
+		return "", fmt.Errorf("unsupported operation %T", op)
 	}
 }
 
@@ -286,22 +217,25 @@ func (r *MSSQLRenderer) renderInsertData(o diff.InsertDataOperation) (string, er
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		cols = append(cols, fmt.Sprintf("[%s]", k))
+		cols = append(cols, quote(k))
 		vals = append(vals, formatValue(o.Row[k]))
 	}
 
 	insertStmt := fmt.Sprintf("INSERT INTO [%s].[%s] (%s) VALUES (%s);",
-		o.SchemaName, o.TableName, strings.Join(cols, ", "), strings.Join(vals, ", "))
+		escapeName(o.SchemaName), escapeName(o.TableName), strings.Join(cols, ", "), strings.Join(vals, ", "))
 
 	if o.HasIdentity {
-		return fmt.Sprintf("SET IDENTITY_INSERT [%s].[%s] ON;\n%s\nSET IDENTITY_INSERT [%s].[%s] OFF;",
-			o.SchemaName, o.TableName, insertStmt, o.SchemaName, o.TableName), nil
+		return fmt.Sprintf("SET IDENTITY_INSERT [%s].[%s] ON;\nBEGIN TRY\n%s\nSET IDENTITY_INSERT [%s].[%s] OFF;\nEND TRY\nBEGIN CATCH\nSET IDENTITY_INSERT [%s].[%s] OFF;\nTHROW;\nEND CATCH;",
+			escapeName(o.SchemaName), escapeName(o.TableName), insertStmt, escapeName(o.SchemaName), escapeName(o.TableName), escapeName(o.SchemaName), escapeName(o.TableName)), nil
 	}
 
 	return insertStmt, nil
 }
 
 func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, error) {
+	if len(o.PrimaryKey) == 0 || len(o.Updates) == 0 {
+		return "", fmt.Errorf("update requires primary key and values")
+	}
 	var sets []string
 
 	var keys []string
@@ -311,7 +245,7 @@ func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, er
 	sort.Strings(keys)
 
 	for _, k := range keys {
-		sets = append(sets, fmt.Sprintf("[%s] = %s", k, formatValue(o.Updates[k])))
+		sets = append(sets, fmt.Sprintf("%s = %s", quote(k), formatValue(o.Updates[k])))
 	}
 
 	var wheres []string
@@ -322,14 +256,17 @@ func (r *MSSQLRenderer) renderUpdateData(o diff.UpdateDataOperation) (string, er
 	sort.Strings(pkKeys)
 
 	for _, k := range pkKeys {
-		wheres = append(wheres, fmt.Sprintf("[%s] = %s", k, formatValue(o.PrimaryKey[k])))
+		wheres = append(wheres, fmt.Sprintf("%s = %s", quote(k), formatValue(o.PrimaryKey[k])))
 	}
 
 	return fmt.Sprintf("UPDATE [%s].[%s] SET %s WHERE %s;",
-		o.SchemaName, o.TableName, strings.Join(sets, ", "), strings.Join(wheres, " AND ")), nil
+		escapeName(o.SchemaName), escapeName(o.TableName), strings.Join(sets, ", "), strings.Join(wheres, " AND ")), nil
 }
 
 func (r *MSSQLRenderer) renderDeleteData(o diff.DeleteDataOperation) (string, error) {
+	if len(o.PrimaryKey) == 0 {
+		return "", fmt.Errorf("delete requires primary key")
+	}
 	var wheres []string
 
 	var pkKeys []string
@@ -339,25 +276,11 @@ func (r *MSSQLRenderer) renderDeleteData(o diff.DeleteDataOperation) (string, er
 	sort.Strings(pkKeys)
 
 	for _, k := range pkKeys {
-		wheres = append(wheres, fmt.Sprintf("[%s] = %s", k, formatValue(o.PrimaryKey[k])))
+		wheres = append(wheres, fmt.Sprintf("%s = %s", quote(k), formatValue(o.PrimaryKey[k])))
 	}
 
 	return fmt.Sprintf("DELETE FROM [%s].[%s] WHERE %s;",
-		o.SchemaName, o.TableName, strings.Join(wheres, " AND ")), nil
-}
-
-func ensureSemicolon(s string) string {
-	s = strings.TrimSpace(s)
-	if !strings.HasSuffix(s, ";") {
-		s += ";"
-	}
-	return s
-}
-
-func execWrap(s string) string {
-	s = ensureSemicolon(s)
-	escaped := strings.ReplaceAll(s, "'", "''")
-	return fmt.Sprintf("EXEC('%s');", escaped)
+		escapeName(o.SchemaName), escapeName(o.TableName), strings.Join(wheres, " AND ")), nil
 }
 
 func formatValue(val interface{}) string {
@@ -369,6 +292,8 @@ func formatValue(val interface{}) string {
 		return fmt.Sprintf("N'%s'", strings.ReplaceAll(v, "'", "''"))
 	case []byte:
 		return fmt.Sprintf("0x%X", v)
+	case schema.TemporalValue:
+		return literal(v.Text)
 	case time.Time:
 		if v.Hour() == 0 && v.Minute() == 0 && v.Second() == 0 && v.Nanosecond() == 0 {
 			return fmt.Sprintf("'%s'", v.Format("2006-01-02"))
@@ -386,7 +311,7 @@ func formatValue(val interface{}) string {
 
 func (r *MSSQLRenderer) renderCreateTable(o diff.CreateTableOperation) (string, error) {
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("CREATE TABLE [%s].[%s] (\n", o.SchemaName, o.Table.Name))
+	builder.WriteString(fmt.Sprintf("CREATE TABLE [%s].[%s] (\n", escapeName(o.SchemaName), escapeName(o.Table.Name)))
 
 	// Ensure columns are printed in a consistent order (e.g. sorted by name) for deterministic output,
 	// though in a real database order matters. For now, we'll just iterate, maybe sort them if needed.
@@ -394,11 +319,21 @@ func (r *MSSQLRenderer) renderCreateTable(o diff.CreateTableOperation) (string, 
 	for name := range o.Table.Columns {
 		colNames = append(colNames, name)
 	}
-	sort.Strings(colNames)
+	sort.Slice(colNames, func(i, j int) bool {
+		a, b := o.Table.Columns[colNames[i]], o.Table.Columns[colNames[j]]
+		if a.Ordinal != b.Ordinal {
+			return a.Ordinal < b.Ordinal
+		}
+		return colNames[i] < colNames[j]
+	})
 
 	for i, name := range colNames {
 		col := o.Table.Columns[name]
-		builder.WriteString(fmt.Sprintf("    %s", r.renderColumnDefinition(*col)))
+		column, err := r.renderColumnDefinition(*col)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteString(fmt.Sprintf("    %s", column))
 		if i < len(colNames)-1 {
 			builder.WriteString(",")
 		}
@@ -409,7 +344,7 @@ func (r *MSSQLRenderer) renderCreateTable(o diff.CreateTableOperation) (string, 
 	return builder.String(), nil
 }
 
-func (r *MSSQLRenderer) renderColumnDefinition(c schema.Column) string {
+func (r *MSSQLRenderer) renderColumnDefinition(c schema.Column) (string, error) {
 	typeStr := r.renderDataType(c.Type, c.Name)
 
 	nullStr := "NOT NULL"
@@ -419,22 +354,65 @@ func (r *MSSQLRenderer) renderColumnDefinition(c schema.Column) string {
 
 	identityStr := ""
 	if c.Identity {
-		identityStr = " IDENTITY(1,1)"
+		seed, inc := c.IdentitySeed, c.IdentityIncrement
+		if seed == "" {
+			seed = "1"
+		}
+		if inc == "" {
+			inc = "1"
+		}
+		identityStr = " IDENTITY(" + seed + "," + inc + ")"
 	}
 
 	defaultStr := ""
 	if c.Default != nil {
-		defaultStr = fmt.Sprintf(" DEFAULT %s", c.Default.Value)
+		name := ""
+		if c.Default.Name != "" {
+			name = "CONSTRAINT " + quote(c.Default.Name) + " "
+		}
+		defaultStr = " " + name + "DEFAULT " + c.Default.Value
 	}
 
 	if c.Computed {
-		return fmt.Sprintf("[%s] AS %s", c.Name, c.ComputedExpr)
+		persist := ""
+		if c.Persisted {
+			persist = " PERSISTED"
+		}
+		return quote(c.Name) + " AS " + c.ComputedExpr + persist, nil
 	}
 
-	return fmt.Sprintf("[%s] %s %s%s%s", c.Name, typeStr, nullStr, identityStr, defaultStr)
+	collation, err := collationSQL(c.Collation)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s %s%s %s%s%s", quote(c.Name), typeStr, collation, nullStr, identityStr, defaultStr), nil
 }
 
 func (r *MSSQLRenderer) renderDataType(dt schema.DataType, colName string) string {
+	if dt.NativeType != "" {
+		n := strings.ToLower(dt.NativeType)
+		switch n {
+		case "varchar", "nvarchar", "char", "nchar", "binary", "varbinary":
+			length := "MAX"
+			if dt.Length != nil && *dt.Length > 0 {
+				length = fmt.Sprint(*dt.Length)
+			}
+			return strings.ToUpper(n) + "(" + length + ")"
+		case "decimal", "numeric":
+			if dt.Precision != nil && dt.Scale != nil {
+				return fmt.Sprintf("%s(%d, %d)", strings.ToUpper(n), *dt.Precision, *dt.Scale)
+			}
+		case "datetime2", "datetimeoffset", "time":
+			if dt.Scale != nil {
+				return fmt.Sprintf("%s(%d)", strings.ToUpper(n), *dt.Scale)
+			}
+		case "float":
+			if dt.Precision != nil {
+				return fmt.Sprintf("FLOAT(%d)", *dt.Precision)
+			}
+		}
+		return strings.ToUpper(n)
+	}
 	switch dt.Kind {
 	case schema.TypeString:
 		if dt.Length != nil && *dt.Length > 0 && *dt.Length <= 4000 {
@@ -472,3 +450,5 @@ func (r *MSSQLRenderer) renderDataType(dt schema.DataType, colName string) strin
 		return "NVARCHAR(MAX)"
 	}
 }
+
+func escapeName(s string) string { return strings.ReplaceAll(s, "]", "]]") }

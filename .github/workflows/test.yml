@@ -15,7 +15,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.24.0'
+        go-version-file: go.mod
 
     - name: Build
       run: go build -v ./...
@@ -23,5 +23,10 @@ jobs:
     - name: Start Docker
       run: systemctl is-active docker || sudo systemctl start docker
 
-    - name: Test
-      run: go test -v ./...
+    - name: Unit tests
+      run: go test -race -short ./...
+
+    - name: Required SQL Server integration tests
+      env:
+        DBDIFF_REQUIRE_MSSQL: "1"
+      run: go test -v -count=1 -timeout=15m ./internal/adapters/mssql -run TestMSSQLIntegration

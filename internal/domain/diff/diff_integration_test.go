@@ -112,7 +112,10 @@ func TestSchemaDiffer_Compare_Full(t *testing.T) {
 		},
 	}
 
-	plan := differ.Compare(sourceDB, targetDB)
+	plan, err := differ.Compare(sourceDB, targetDB)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	expectedOps := map[OperationType]int{
 		CreateSchema: 1, // new_schema

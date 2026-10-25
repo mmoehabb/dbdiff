@@ -16,6 +16,7 @@ func NewJSONRenderer() *JSONRenderer {
 
 // Wrapper for JSON encoding since diff.Operation is an interface
 type operationWrapper struct {
+	diff.StepMetadata
 	Type          string      `json:"type"`
 	IsDestructive bool        `json:"is_destructive"`
 	Data          interface{} `json:"data"`
@@ -25,6 +26,7 @@ func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 	wrappedSchemaOps := make([]operationWrapper, 0, len(plan.SchemaOperations))
 	for _, op := range plan.SchemaOperations {
 		wrappedSchemaOps = append(wrappedSchemaOps, operationWrapper{
+			StepMetadata:  plan.Step(op),
 			Type:          string(op.OperationType()),
 			IsDestructive: op.IsDestructive(),
 			Data:          op,
@@ -34,6 +36,7 @@ func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 	wrappedDataOps := make([]operationWrapper, 0, len(plan.DataOperations))
 	for _, op := range plan.DataOperations {
 		wrappedDataOps = append(wrappedDataOps, operationWrapper{
+			StepMetadata:  plan.Step(op),
 			Type:          string(op.OperationType()),
 			IsDestructive: op.IsDestructive(),
 			Data:          op,
@@ -42,6 +45,7 @@ func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 
 	output := map[string]interface{}{
 		"schema_operations": wrappedSchemaOps,
+		"omitted":           plan.Omitted,
 		"data_operations":   wrappedDataOps,
 	}
 
