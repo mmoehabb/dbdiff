@@ -78,6 +78,8 @@ type DataReader interface {
 type DataDiffer struct {
 	sourceReader, targetReader DataReader
 	OmittedTables              []string
+	OmittedReasons             map[string]string
+	Incomplete                 bool
 }
 
 func NewDataDiffer(source, target DataReader) *DataDiffer {
@@ -85,6 +87,8 @@ func NewDataDiffer(source, target DataReader) *DataDiffer {
 }
 func (d *DataDiffer) CompareData(ctx context.Context, source, target *schema.Database, skipped ...map[string]bool) ([]Operation, error) {
 	d.OmittedTables = nil
+	d.Incomplete = false
+	d.OmittedReasons = map[string]string{}
 	if source == nil || target == nil {
 		return nil, fmt.Errorf("source and target schemas are required")
 	}
@@ -95,30 +99,78 @@ func (d *DataDiffer) CompareData(ctx context.Context, source, target *schema.Dat
 		}
 	}
 	blocked := map[string]bool{}
+	capabilityBlocked := map[string]bool{}
 	for _, m := range skipped {
 		for k, v := range m {
 			blocked[k] = v
 		}
 	}
+	for ref, t := range tables {
+		for side, table := range []*schema.Table{t, tableAt(target, ref.Schema, ref.Name)} {
+			if reason := dataFeatureReason(table); reason != "" {
+				k := key(ref.Schema, ref.Name)
+				blocked[k] = true
+				capabilityBlocked[k] = true
+				d.OmittedReasons[k] = fmt.Sprintf("%s database %q, %s.%s: %s; data synchronization requires an explicit migration", []string{"source", "target"}[side], []*schema.Database{source, target}[side].Name, ref.Schema, ref.Name, reason)
+			}
+		}
+	}
+
+	// A skipped target-only child can still be changed by a parent's cascade.
+	for sn, s := range target.Schemas {
+		for tn, t := range s.Tables {
+			if tableAt(source, sn, tn) == nil && dataFeatureReason(t) != "" {
+				k := key(sn, tn)
+				blocked[k] = true
+				capabilityBlocked[k] = true
+			}
+		}
+	}
+	// Keep each connected FK component together. Skipping only children would
+	// still allow a parent DELETE/UPDATE to cascade into a skipped special table,
+	// or fail because a retained child still references it. Include both snapshots
+	// and target-only children whose schema removal may have been omitted.
 	for changed := true; changed; {
 		changed = false
-		for ref, t := range tables {
-			if blocked[key(ref.Schema, ref.Name)] {
-				continue
-			}
-			for _, fk := range t.ForeignKeys {
-				parent := parseRefTable(ref.Schema, fk.RefTable)
-				if blocked[key(parent.Schema, parent.Name)] {
-					blocked[key(ref.Schema, ref.Name)] = true
-					changed = true
-					break
+		for _, db := range []*schema.Database{source, target} {
+			for sn, s := range db.Schemas {
+				for tn, t := range s.Tables {
+					child := key(sn, tn)
+					for _, fk := range t.ForeignKeys {
+						ref := parseRefTable(sn, fk.RefTable)
+						parent := key(ref.Schema, ref.Name)
+						if blocked[child] && !blocked[parent] {
+							blocked[parent] = true
+							changed = true
+						}
+						if blocked[parent] && !blocked[child] {
+							blocked[child] = true
+							changed = true
+						}
+						if capabilityBlocked[child] && !capabilityBlocked[parent] {
+							capabilityBlocked[parent] = true
+							changed = true
+						}
+						if capabilityBlocked[parent] && !capabilityBlocked[child] {
+							capabilityBlocked[child] = true
+							changed = true
+						}
+					}
 				}
 			}
 		}
 	}
+
 	for ref := range tables {
 		if blocked[key(ref.Schema, ref.Name)] {
-			d.OmittedTables = append(d.OmittedTables, key(ref.Schema, ref.Name))
+			if capabilityBlocked[key(ref.Schema, ref.Name)] {
+				d.Incomplete = true
+			}
+			k := key(ref.Schema, ref.Name)
+			d.OmittedTables = append(d.OmittedTables, k)
+			if d.OmittedReasons[k] == "" {
+				d.OmittedReasons[k] = "data synchronization belongs to a foreign-key component with an omitted schema change or blocked data prerequisite"
+			}
 			delete(tables, ref)
 		}
 	}

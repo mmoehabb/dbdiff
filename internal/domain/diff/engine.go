@@ -114,6 +114,7 @@ func (d *SchemaDiffer) Compare(source, target *schema.Database) (*MigrationPlan,
 	if err := plan.Finalize(source, originalTarget); err != nil {
 		return nil, err
 	}
+	plan.restrictCapabilities(source, originalTarget)
 	return plan, nil
 }
 
@@ -233,7 +234,7 @@ func (d *SchemaDiffer) compareColumns(schemaName string, sourceTable, targetTabl
 }
 
 func (d *SchemaDiffer) isColumnEqual(sourceCol, targetCol *schema.Column) bool {
-	if sourceCol.Type.NativeType != targetCol.Type.NativeType || sourceCol.Collation != targetCol.Collation || sourceCol.Persisted != targetCol.Persisted || sourceCol.IdentitySeed != targetCol.IdentitySeed || sourceCol.IdentityIncrement != targetCol.IdentityIncrement {
+	if sourceCol.Type.NativeType != targetCol.Type.NativeType || sourceCol.Collation != targetCol.Collation || sourceCol.Persisted != targetCol.Persisted || sourceCol.IdentitySeed != targetCol.IdentitySeed || sourceCol.IdentityIncrement != targetCol.IdentityIncrement || sourceCol.Generated != targetCol.Generated {
 		return false
 	}
 	if sourceCol.Type.Kind != targetCol.Type.Kind {
@@ -506,7 +507,7 @@ func (d *SchemaDiffer) compareFunctions(sourceSchema, targetSchema *schema.Schem
 		}
 		if targetFunc == nil {
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateFunctionOperation{SchemaName: sourceSchema.Name, Function: *sourceFunc})
-		} else if sourceFunc.Definition != targetFunc.Definition || sourceFunc.UsesANSI_NULLS != targetFunc.UsesANSI_NULLS || sourceFunc.UsesQuotedIdentifier != targetFunc.UsesQuotedIdentifier {
+		} else if sourceFunc.Kind != targetFunc.Kind || sourceFunc.Definition != targetFunc.Definition || sourceFunc.UsesANSI_NULLS != targetFunc.UsesANSI_NULLS || sourceFunc.UsesQuotedIdentifier != targetFunc.UsesQuotedIdentifier {
 			plan.SchemaOperations = append(plan.SchemaOperations, AlterFunctionOperation{SchemaName: sourceSchema.Name, Function: *sourceFunc})
 		}
 	}
@@ -569,7 +570,7 @@ func (d *SchemaDiffer) compareSequences(sourceSchema, targetSchema *schema.Schem
 }
 
 func (d *SchemaDiffer) isSequenceEqual(s1, s2 *schema.Sequence) bool {
-	return s1.StartValue == s2.StartValue && s1.Increment == s2.Increment && s1.MinValue == s2.MinValue && s1.MaxValue == s2.MaxValue && s1.IsCycling == s2.IsCycling && s1.CacheSize == s2.CacheSize
+	return reflect.DeepEqual(s1.Type, s2.Type) && s1.StartValue == s2.StartValue && s1.Increment == s2.Increment && s1.MinValue == s2.MinValue && s1.MaxValue == s2.MaxValue && s1.IsCycling == s2.IsCycling && s1.CacheSize == s2.CacheSize
 }
 
 func (d *SchemaDiffer) comparePartitionSchemes(sourceSchema, targetSchema *schema.Schema, plan *MigrationPlan) {

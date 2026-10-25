@@ -46,6 +46,7 @@ func (r *JSONRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 	output := map[string]interface{}{
 		"schema_operations": wrappedSchemaOps,
 		"omitted":           plan.Omitted,
+		"incomplete":        plan.Incomplete,
 		"data_operations":   wrappedDataOps,
 	}
 

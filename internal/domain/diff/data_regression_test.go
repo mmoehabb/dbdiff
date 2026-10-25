@@ -35,7 +35,7 @@ func TestCompositeKeyEncoding(t *testing.T) {
 }
 func TestDataForNewTable(t *testing.T) {
 	source := dataFixture()
-	source.Schemas["dbo"].Tables["ArticleViews"].Columns["Computed"] = &schema.Column{Name: "Computed", Computed: true}
+	source.Schemas["dbo"].Tables["ArticleViews"].Columns["Computed"] = &schema.Column{Name: "Computed", Computed: true, Type: schema.DataType{Kind: schema.TypeInteger}}
 	sr := &memoryReader{rows: map[string][]map[string]interface{}{"dbo.ArticleViews": {{"ArticleId": int64(1), "Computed": 5}}}}
 	tr := &memoryReader{}
 	ops, err := NewDataDiffer(sr, tr).CompareData(context.Background(), source, &schema.Database{})

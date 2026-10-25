@@ -3,6 +3,7 @@ package schema
 // Database represents the highest level in the domain model.
 type Database struct {
 	Unsupported        []string
+	Features           []ObjectFeature
 	Dependencies       []Dependency
 	Name               string
 	Schemas            map[string]*Schema
@@ -27,4 +28,12 @@ type Schema struct {
 type Dependency struct {
 	Schema, Object, RefSchema, RefObject string
 	SchemaBound                          bool
+	ReferencingType                      string // SQL Server object kind, such as SP for a security policy.
+}
+
+// ObjectFeature scopes unsupported standalone objects to their owning namespace.
+type ObjectFeature struct {
+	Schema  string
+	Object  string
+	Feature Feature
 }

@@ -51,7 +51,7 @@ func renderIndex(o diff.CreateIndexOperation) (string, error) {
 		)
 		sql += " WITH (" + strings.Join(options, ", ") + ")"
 	}
-	return sql + ";", nil
+	return sql + " ON [PRIMARY];", nil
 }
 func onOff(v bool) string {
 	if v {

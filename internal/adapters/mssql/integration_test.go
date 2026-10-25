@@ -21,6 +21,9 @@ func integrationServer(t *testing.T) string {
 	if testing.Short() {
 		t.Skip("SQL Server integration tests disabled by -short")
 	}
+	if dsn := os.Getenv("DBDIFF_MSSQL_DSN"); dsn != "" {
+		return dsn
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	t.Cleanup(cancel)
 	checkCtx, checkCancel := context.WithTimeout(ctx, 15*time.Second)
@@ -205,9 +208,9 @@ INSERT INTO dbo.ArticleViews(ArticleId,Payload,BinaryData,RequestId,ViewedAt,Vie
 		ddl := `CREATE TABLE dbo.ArticleViews(ArticleId int NOT NULL);`
 		execFixture(t, source, ddl+`CREATE INDEX IX_ArticleViews_ArticleId ON dbo.ArticleViews(ArticleId);`)
 		execFixture(t, target, ddl+`CREATE STATISTICS IX_ArticleViews_ArticleId ON dbo.ArticleViews(ArticleId);`)
-		_, err := diff.NewSchemaDiffer().Compare(inspectTest(t, sourceDSN), inspectTest(t, targetDSN))
-		if err == nil || !strings.Contains(err.Error(), "statistics") {
-			t.Fatalf("collision not diagnosed: %v", err)
+		p := planTest(t, inspectTest(t, sourceDSN), inspectTest(t, targetDSN))
+		if !p.Incomplete || len(p.SchemaOperations) != 0 || len(p.Omitted) != 1 || !strings.Contains(p.Omitted[0].Reason, "statistics") {
+			t.Fatalf("collision not isolated: %+v", p)
 		}
 	})
 }

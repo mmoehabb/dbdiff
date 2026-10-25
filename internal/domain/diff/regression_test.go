@@ -138,12 +138,12 @@ func TestStatisticsCollisionAndUnsupportedChanges(t *testing.T) {
 	source := cloneDB(target)
 	target.Schemas["dbo"].Tables["ArticleViews"].Indexes = nil
 	target.Schemas["dbo"].Tables["ArticleViews"].Statistics = map[string]bool{"IX_ArticleViews_ArticleId": true}
-	if _, err := NewSchemaDiffer().Compare(source, target); err == nil {
-		t.Fatal("statistics collision accepted")
+	if p := compareTest(t, source, target); !p.Incomplete || len(p.SchemaOperations) != 0 || len(p.Omitted) != 1 {
+		t.Fatal("statistics collision was not isolated")
 	}
 	source.Schemas["dbo"].Tables["ArticleViews"].IsSystemVersioned = true
-	if _, err := NewSchemaDiffer().Compare(source, source); err == nil {
-		t.Fatal("unsupported temporal metadata accepted")
+	if p := compareTest(t, source, source); p.Incomplete || len(p.SchemaOperations) != 0 {
+		t.Fatal("unchanged temporal metadata should permit comparison")
 	}
 }
 func TestDeterministicPlan(t *testing.T) {
@@ -232,8 +232,8 @@ func TestFunctionKindChangeRejected(t *testing.T) {
 			source := cloneDB(target)
 			source.Schemas["dbo"].Functions["F"].Kind = pair[1]
 			source.Schemas["dbo"].Functions["F"].Definition = "new"
-			if p, err := NewSchemaDiffer().Compare(source, target); err == nil || p != nil {
-				t.Fatalf("expected kind-change diagnostic without executable plan, got %v, %v", p, err)
+			if p := compareTest(t, source, target); !p.Incomplete || len(p.SchemaOperations) != 0 || len(p.Omitted) != 1 {
+				t.Fatalf("expected kind-change omission without executable operations, got %+v", p)
 			}
 		})
 	}

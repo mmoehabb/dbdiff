@@ -255,7 +255,7 @@ func (p *MigrationPlan) Finalize(source, target *schema.Database) error {
 	for i, op := range ops {
 		if _, ok := op.(DropForeignKeyOperation); ok {
 			for j, a := range ops {
-				if edges[j][i] && a.OperationType() == AlterColumn {
+				if edges[j][i] && (a.OperationType() == AlterColumn || a.OperationType() == DropColumn || a.OperationType() == DropPrimaryKey || a.OperationType() == DropIndex || a.OperationType() == DropTable) {
 					old := groups[i]
 					for k := range groups {
 						if groups[k] == old {
@@ -330,9 +330,19 @@ func matchesObject(op Operation, sn, name string) bool {
 	if s != sn {
 		return false
 	}
+
+	switch o := op.(type) {
+	case CreateTriggerOperation:
+		return o.Trigger.Name == name
+	case AlterTriggerOperation:
+		return o.Trigger.Name == name
+	case DropTriggerOperation:
+		return o.TriggerName == name
+	}
 	if t != "" {
 		return t == name
 	}
+
 	v := reflect.ValueOf(op)
 	for _, f := range []string{"View", "Procedure", "Function", "Sequence", "Synonym"} {
 		x := v.FieldByName(f)
@@ -367,22 +377,27 @@ func (p *MigrationPlan) ApplySafety(allow bool) {
 	if allow {
 		return
 	}
-	blocked := map[string]bool{}
+	blocked := map[string]string{}
 	for _, op := range p.SchemaOperations {
 		if op.IsDestructive() {
-			blocked[p.Step(op).GroupID] = true
+			blocked[p.Step(op).GroupID] = "requires --allow-destructive"
 		}
 	}
+	p.omitGroups(blocked)
+	p.FilterData(allow)
+}
+
+func (p *MigrationPlan) omitGroups(blocked map[string]string) {
 	for changed := true; changed; {
 		changed = false
 		for _, op := range p.SchemaOperations {
 			m := p.Step(op)
-			if blocked[m.GroupID] {
+			if blocked[m.GroupID] != "" {
 				continue
 			}
 			for _, id := range m.DependsOn {
-				if blocked[p.Metadata[id].GroupID] {
-					blocked[m.GroupID] = true
+				if reason := blocked[p.Metadata[id].GroupID]; reason != "" {
+					blocked[m.GroupID] = "blocked prerequisite: " + reason
 					changed = true
 					break
 				}
@@ -390,11 +405,13 @@ func (p *MigrationPlan) ApplySafety(allow bool) {
 		}
 	}
 	kept := []Operation{}
-	p.BlockedTables = map[string]bool{}
+	if p.BlockedTables == nil {
+		p.BlockedTables = map[string]bool{}
+	}
 	for _, op := range p.SchemaOperations {
 		m := p.Step(op)
-		if blocked[m.GroupID] {
-			p.Omitted = append(p.Omitted, Diagnostic{m.ID, "requires --allow-destructive or a blocked prerequisite"})
+		if reason := blocked[m.GroupID]; reason != "" {
+			p.Omitted = append(p.Omitted, Diagnostic{ID: m.ID, Reason: reason})
 			sn, tn := Scope(op)
 			p.BlockedTables[key(sn, tn)] = true
 		} else {
@@ -402,8 +419,8 @@ func (p *MigrationPlan) ApplySafety(allow bool) {
 		}
 	}
 	p.SchemaOperations = kept
-	p.FilterData(allow)
 }
+
 func (p *MigrationPlan) FilterData(allow bool) {
 	kept := []Operation{}
 	for _, op := range p.DataOperations {

@@ -99,7 +99,7 @@ func TestCompositeIndexSQL(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := prefix + " (" + keys + ");"
+				want := prefix + " (" + keys + ") ON [PRIMARY];"
 				if strings.TrimSpace(got) != want {
 					t.Fatalf("got %s; want %s", got, want)
 				}

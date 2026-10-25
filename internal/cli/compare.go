@@ -120,8 +120,9 @@ var compareCmd = &cobra.Command{
 				os.Exit(2)
 			}
 			plan.DataOperations = dataOps
+			plan.Incomplete = plan.Incomplete || dataDiffer.Incomplete
 			for _, table := range dataDiffer.OmittedTables {
-				plan.Omitted = append(plan.Omitted, diff.Diagnostic{ID: "data:" + table, Reason: "depends on omitted schema changes"})
+				plan.Omitted = append(plan.Omitted, diff.Diagnostic{ID: "data:" + table, Reason: dataDiffer.OmittedReasons[table]})
 			}
 		}
 
@@ -166,7 +167,10 @@ var compareCmd = &cobra.Command{
 			fmt.Println(renderedOutput)
 		}
 
-		// Exit codes: 0 = no differences, 1 = differences found, 2 = error (handled above)
+		// Exit codes: 0 = no differences, 1 = differences, 2 = error, 3 = unsupported omissions.
+		if plan.Incomplete {
+			os.Exit(3)
+		}
 		if hasDifferences {
 			os.Exit(1)
 		} else {
