@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "github.com/microsoft/go-mssqldb"
 
@@ -42,9 +43,12 @@ func (i *MSSQLIntrospector) Inspect(ctx context.Context) (*schema.Database, erro
 		Name:               dbName,
 		Schemas:            make(map[string]*schema.Schema),
 		PartitionFunctions: make(map[string]*schema.PartitionFunction),
-		ExtendedProperties: make(map[string]string),
+		ExtendedProperties: make(map[string]schema.PropertyValue),
 	}
 
+	if err := i.loadSafetyMetadata(ctx, db, database); err != nil {
+		return nil, err
+	}
 	if err := i.loadTables(ctx, db, database); err != nil {
 		return nil, err
 	}
@@ -98,6 +102,9 @@ func (i *MSSQLIntrospector) Inspect(ctx context.Context) (*schema.Database, erro
 		return nil, err
 	}
 
+	if err := i.loadChecksAndStatistics(ctx, db, database); err != nil {
+		return nil, err
+	}
 	return database, nil
 }
 
@@ -154,15 +161,19 @@ func (i *MSSQLIntrospector) loadColumns(ctx context.Context, db *sql.DB, databas
 		var computedExpr sql.NullString
 		var defaultValue sql.NullString
 		var defaultName sql.NullString
+		var collation, seed, increment sql.NullString
+		var ordinal, generated int
+		var persisted sql.NullBool
 
-		if err := rows.Scan(&schemaName, &tableName, &columnName, &typeName, &maxLength, &precision, &scale, &isNullable, &isIdentity, &isComputed, &computedExpr, &defaultValue, &defaultName); err != nil {
+		if err := rows.Scan(&schemaName, &tableName, &columnName, &typeName, &maxLength, &precision, &scale, &isNullable, &isIdentity, &isComputed, &computedExpr, &defaultValue, &defaultName, &collation, &ordinal, &generated, &persisted, &seed, &increment); err != nil {
 			return err
 		}
 
 		table := i.ensureSchemaAndTable(database, schemaName, tableName)
 
 		col := &schema.Column{
-			Name:     columnName,
+			Name:      columnName,
+			Collation: collation.String, Ordinal: ordinal, Generated: generated != 0 || typeName == "timestamp" || typeName == "rowversion", Persisted: persisted.Bool, IdentitySeed: seed.String, IdentityIncrement: increment.String,
 			Type:     mapMSSQLTypeToDomain(typeName, maxLength, precision, scale),
 			Nullable: isNullable,
 			Identity: isIdentity,
@@ -194,7 +205,9 @@ func (i *MSSQLIntrospector) loadPrimaryKeys(ctx context.Context, db *sql.DB, dat
 
 	for rows.Next() {
 		var schemaName, tableName, keyName, columnName string
-		if err := rows.Scan(&schemaName, &tableName, &keyName, &columnName); err != nil {
+		var indexType int
+		var descending bool
+		if err := rows.Scan(&schemaName, &tableName, &keyName, &columnName, &indexType, &descending); err != nil {
 			return err
 		}
 
@@ -202,11 +215,12 @@ func (i *MSSQLIntrospector) loadPrimaryKeys(ctx context.Context, db *sql.DB, dat
 
 		if table.PrimaryKey == nil {
 			table.PrimaryKey = &schema.PrimaryKey{
-				Name:    keyName,
+				Name: keyName, Clustered: indexType == 1,
 				Columns: []string{},
 			}
 		}
 		table.PrimaryKey.Columns = append(table.PrimaryKey.Columns, columnName)
+		table.PrimaryKey.Descending = append(table.PrimaryKey.Descending, descending)
 	}
 	return rows.Err()
 }
@@ -233,7 +247,7 @@ func (i *MSSQLIntrospector) loadForeignKeys(ctx context.Context, db *sql.DB, dat
 			fk = &schema.ForeignKey{
 				Name:       fkName,
 				Columns:    []string{},
-				RefTable:   fmt.Sprintf("[%s].[%s]", refSchema, refTable),
+				RefTable:   qualified(refSchema, refTable),
 				RefColumns: []string{},
 				OnUpdate:   onUpdate.String,
 				OnDelete:   onDelete.String,
@@ -256,9 +270,11 @@ func (i *MSSQLIntrospector) loadIndexes(ctx context.Context, db *sql.DB, databas
 
 	for rows.Next() {
 		var schemaName, tableName, indexName, columnName string
-		var isUnique bool
+		var isUnique, descending, included, isConstraint, disabled, padded, ignoreDup, rowLocks, pageLocks bool
+		var indexType, ordinal, fill int
+		var filter sql.NullString
 
-		if err := rows.Scan(&schemaName, &tableName, &indexName, &columnName, &isUnique); err != nil {
+		if err := rows.Scan(&schemaName, &tableName, &indexName, &columnName, &isUnique, &indexType, &ordinal, &descending, &included, &filter, &isConstraint, &disabled, &fill, &padded, &ignoreDup, &rowLocks, &pageLocks); err != nil {
 			return err
 		}
 
@@ -267,14 +283,20 @@ func (i *MSSQLIntrospector) loadIndexes(ctx context.Context, db *sql.DB, databas
 		idx, ok := table.Indexes[indexName]
 		if !ok {
 			idx = &schema.Index{
-				Name:     indexName,
+				Name:      indexName,
+				Clustered: indexType == 1, Filter: filter.String, IsConstraint: isConstraint, Disabled: disabled, FillFactor: fill, PadIndex: padded, IgnoreDupKey: ignoreDup, AllowRowLocks: rowLocks, AllowPageLocks: pageLocks, OptionsKnown: true,
 				Columns:  []string{},
 				IsUnique: isUnique,
 			}
 			table.Indexes[indexName] = idx
 		}
 
-		idx.Columns = append(idx.Columns, columnName)
+		if included {
+			idx.IncludedColumns = append(idx.IncludedColumns, columnName)
+		} else if ordinal > 0 {
+			idx.Columns = append(idx.Columns, columnName)
+			idx.Descending = append(idx.Descending, descending)
+		}
 	}
 	return rows.Err()
 }
@@ -290,7 +312,7 @@ func (i *MSSQLIntrospector) ensureSchema(database *schema.Database, schemaName s
 			Synonyms:           make(map[string]*schema.Synonym),
 			Sequences:          make(map[string]*schema.Sequence),
 			PartitionSchemes:   make(map[string]*schema.PartitionScheme),
-			ExtendedProperties: make(map[string]string),
+			ExtendedProperties: make(map[string]schema.PropertyValue),
 		}
 	} else {
 		s := database.Schemas[schemaName]
@@ -316,7 +338,7 @@ func (i *MSSQLIntrospector) ensureSchema(database *schema.Database, schemaName s
 			s.PartitionSchemes = make(map[string]*schema.PartitionScheme)
 		}
 		if s.ExtendedProperties == nil {
-			s.ExtendedProperties = make(map[string]string)
+			s.ExtendedProperties = make(map[string]schema.PropertyValue)
 		}
 	}
 	return database.Schemas[schemaName]
@@ -330,12 +352,13 @@ func (i *MSSQLIntrospector) loadViews(ctx context.Context, db *sql.DB, database 
 	defer rows.Close()
 	for rows.Next() {
 		var s, v, d string
-		if err := rows.Scan(&s, &v, &d); err != nil {
+		var ansi, quoted bool
+		if err := rows.Scan(&s, &v, &d, &ansi, &quoted); err != nil {
 			return err
 		}
-		i.ensureSchema(database, s).Views[v] = &schema.View{Name: v, Definition: d}
+		i.ensureSchema(database, s).Views[v] = &schema.View{Name: v, Definition: canonicalModule(d, s, v), UsesANSI_NULLS: ansi, UsesQuotedIdentifier: quoted}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadProcedures(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -346,12 +369,13 @@ func (i *MSSQLIntrospector) loadProcedures(ctx context.Context, db *sql.DB, data
 	defer rows.Close()
 	for rows.Next() {
 		var s, p, d string
-		if err := rows.Scan(&s, &p, &d); err != nil {
+		var ansi, quoted bool
+		if err := rows.Scan(&s, &p, &d, &ansi, &quoted); err != nil {
 			return err
 		}
-		i.ensureSchema(database, s).Procedures[p] = &schema.Procedure{Name: p, Definition: d}
+		i.ensureSchema(database, s).Procedures[p] = &schema.Procedure{Name: p, Definition: canonicalModule(d, s, p), UsesANSI_NULLS: ansi, UsesQuotedIdentifier: quoted}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadFunctions(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -361,13 +385,14 @@ func (i *MSSQLIntrospector) loadFunctions(ctx context.Context, db *sql.DB, datab
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var s, f, d string
-		if err := rows.Scan(&s, &f, &d); err != nil {
+		var s, f, kind, d string
+		var ansi, quoted bool
+		if err := rows.Scan(&s, &f, &kind, &d, &ansi, &quoted); err != nil {
 			return err
 		}
-		i.ensureSchema(database, s).Functions[f] = &schema.Function{Name: f, Definition: d}
+		i.ensureSchema(database, s).Functions[f] = &schema.Function{Name: f, Kind: strings.TrimSpace(kind), Definition: canonicalModule(d, s, f), UsesANSI_NULLS: ansi, UsesQuotedIdentifier: quoted}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadTriggers(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -378,16 +403,17 @@ func (i *MSSQLIntrospector) loadTriggers(ctx context.Context, db *sql.DB, databa
 	defer rows.Close()
 	for rows.Next() {
 		var s, t, tb, d string
-		if err := rows.Scan(&s, &t, &tb, &d); err != nil {
+		var ansi, quoted bool
+		if err := rows.Scan(&s, &t, &tb, &d, &ansi, &quoted); err != nil {
 			return err
 		}
 		table := i.ensureSchemaAndTable(database, s, tb)
 		if table.Triggers == nil {
 			table.Triggers = make(map[string]*schema.Trigger)
 		}
-		table.Triggers[t] = &schema.Trigger{Name: t, Definition: d}
+		table.Triggers[t] = &schema.Trigger{Name: t, Definition: canonicalModule(d, s, t), UsesANSI_NULLS: ansi, UsesQuotedIdentifier: quoted}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadSynonyms(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -403,7 +429,7 @@ func (i *MSSQLIntrospector) loadSynonyms(ctx context.Context, db *sql.DB, databa
 		}
 		i.ensureSchema(database, s).Synonyms[syn] = &schema.Synonym{Name: syn, TargetObjectName: o}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadSequences(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -413,15 +439,16 @@ func (i *MSSQLIntrospector) loadSequences(ctx context.Context, db *sql.DB, datab
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var s, seq string
+		var s, seq, typeName string
+		var precision, scale int
 		var st, inc, min, max, ca int64
 		var cyc bool
-		if err := rows.Scan(&s, &seq, &st, &inc, &min, &max, &cyc, &ca); err != nil {
+		if err := rows.Scan(&s, &seq, &st, &inc, &min, &max, &cyc, &ca, &typeName, &precision, &scale); err != nil {
 			return err
 		}
-		i.ensureSchema(database, s).Sequences[seq] = &schema.Sequence{Name: seq, StartValue: st, Increment: inc, MinValue: min, MaxValue: max, IsCycling: cyc, CacheSize: ca}
+		i.ensureSchema(database, s).Sequences[seq] = &schema.Sequence{Name: seq, Type: mapMSSQLTypeToDomain(typeName, 0, precision, scale), StartValue: st, Increment: inc, MinValue: min, MaxValue: max, IsCycling: cyc, CacheSize: ca}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadTemporalTables(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -438,11 +465,11 @@ func (i *MSSQLIntrospector) loadTemporalTables(ctx context.Context, db *sql.DB, 
 		}
 		table := i.ensureSchemaAndTable(database, s, t)
 		table.IsSystemVersioned = true
-		table.HistoryTable = fmt.Sprintf("[%s].[%s]", hs, ht)
+		table.HistoryTable = qualified(hs, ht)
 		table.ValidFromColumn = vf
 		table.ValidToColumn = vt
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadPartitionFunctions(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -464,7 +491,7 @@ func (i *MSSQLIntrospector) loadPartitionFunctions(ctx context.Context, db *sql.
 			database.PartitionFunctions[f].BoundaryValues = append(database.PartitionFunctions[f].BoundaryValues, b.String)
 		}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadPartitionSchemes(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -484,7 +511,7 @@ func (i *MSSQLIntrospector) loadPartitionSchemes(ctx context.Context, db *sql.DB
 		}
 		sc.PartitionSchemes[s].FileGroups = append(sc.PartitionSchemes[s].FileGroups, g)
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadReplication(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -502,15 +529,15 @@ func (i *MSSQLIntrospector) loadReplication(ctx context.Context, db *sql.DB, dat
 		table := i.ensureSchemaAndTable(database, s, t)
 		table.IsReplicated = r
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadTablePartitioning(ctx context.Context, db *sql.DB, database *schema.Database) error {
 	q := `SELECT s.name AS schema_name, t.name AS table_name, ps.name AS partition_scheme, c.name AS partition_column, fg.name AS file_group FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id JOIN sys.indexes i ON t.object_id = i.object_id AND i.index_id <= 1 JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND ic.partition_ordinal > 0 JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id LEFT JOIN sys.destination_data_spaces dds ON ps.data_space_id = dds.partition_scheme_id LEFT JOIN sys.filegroups fg ON dds.data_space_id = fg.data_space_id;`
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
-		return nil
-	} // if err, just skip for now so we don't break on old sql versions
+		return fmt.Errorf("query table partitioning: %w", err)
+	}
 	defer rows.Close()
 	for rows.Next() {
 		var s, t, ps, pc, fg string
@@ -522,7 +549,7 @@ func (i *MSSQLIntrospector) loadTablePartitioning(ctx context.Context, db *sql.D
 		table.PartitionColumn = pc
 		table.FileGroup = fg
 	}
-	return nil
+	return rows.Err()
 }
 
 func (i *MSSQLIntrospector) loadExtendedProperties(ctx context.Context, db *sql.DB, database *schema.Database) error {
@@ -533,57 +560,52 @@ func (i *MSSQLIntrospector) loadExtendedProperties(ctx context.Context, db *sql.
 	defer rows.Close()
 	for rows.Next() {
 		var class int
-		var schemaName, objName, subName, n, v string
-		if err := rows.Scan(&class, &schemaName, &objName, &subName, &n, &v); err != nil {
+		var sn, obj, sub, name, value string
+		var typ sql.NullString
+		var length, precision, scale sql.NullInt64
+		if err := rows.Scan(&class, &sn, &obj, &sub, &name, &value, &typ, &length, &precision, &scale); err != nil {
 			return err
 		}
-		if class == 0 {
-			database.ExtendedProperties[n] = v
-		} else if class == 1 {
-			if schemaName != "" && objName != "" {
-				s := i.ensureSchema(database, schemaName)
-				if subName == "" {
-					if t, ok := s.Tables[objName]; ok {
-						if t.ExtendedProperties == nil {
-							t.ExtendedProperties = make(map[string]string)
-						}
-						t.ExtendedProperties[n] = v
-					} else if v2, ok := s.Views[objName]; ok {
-						if v2.ExtendedProperties == nil {
-							v2.ExtendedProperties = make(map[string]string)
-						}
-						v2.ExtendedProperties[n] = v
-					} else if p, ok := s.Procedures[objName]; ok {
-						if p.ExtendedProperties == nil {
-							p.ExtendedProperties = make(map[string]string)
-						}
-						p.ExtendedProperties[n] = v
-					} else if f, ok := s.Functions[objName]; ok {
-						if f.ExtendedProperties == nil {
-							f.ExtendedProperties = make(map[string]string)
-						}
-						f.ExtendedProperties[n] = v
-					}
-				} else {
-					if t, ok := s.Tables[objName]; ok {
-						if col, ok := t.Columns[subName]; ok {
-							if col.ExtendedProperties == nil {
-								col.ExtendedProperties = make(map[string]string)
-							}
-							col.ExtendedProperties[n] = v
-						}
+		v := schema.PropertyValue{Type: typ.String, Value: value, Length: int(length.Int64), Precision: int(precision.Int64), Scale: int(scale.Int64), IsNull: !typ.Valid}
+		if _, err := propertyType(v); err != nil {
+			database.Unsupported = append(database.Unsupported, fmt.Sprintf("property %s: %v", name, err))
+			continue
+		}
+		var dest *map[string]schema.PropertyValue
+		switch class {
+		case 0:
+			dest = &database.ExtendedProperties
+		case 3:
+			s := i.ensureSchema(database, sn)
+			dest = &s.ExtendedProperties
+		case 1:
+			s := i.ensureSchema(database, sn)
+			if sub != "" {
+				if t := s.Tables[obj]; t != nil {
+					if c := t.Columns[sub]; c != nil {
+						dest = &c.ExtendedProperties
 					}
 				}
-			}
-		} else if class == 3 {
-			if schemaName != "" {
-				s := i.ensureSchema(database, schemaName)
-				if s.ExtendedProperties == nil {
-					s.ExtendedProperties = make(map[string]string)
+			} else {
+				if t := s.Tables[obj]; t != nil {
+					dest = &t.ExtendedProperties
+				} else if v := s.Views[obj]; v != nil {
+					dest = &v.ExtendedProperties
+				} else if p := s.Procedures[obj]; p != nil {
+					dest = &p.ExtendedProperties
+				} else if f := s.Functions[obj]; f != nil {
+					dest = &f.ExtendedProperties
 				}
-				s.ExtendedProperties[n] = v
 			}
 		}
+		if dest == nil {
+			database.Unsupported = append(database.Unsupported, fmt.Sprintf("property %s on unsupported class/object %d %s.%s.%s", name, class, sn, obj, sub))
+			continue
+		}
+		if *dest == nil {
+			*dest = make(map[string]schema.PropertyValue)
+		}
+		(*dest)[name] = v
 	}
-	return nil
+	return rows.Err()
 }

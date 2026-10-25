@@ -45,7 +45,10 @@ func TestSchemaDiffer_Compare_DecomposedCreateTable(t *testing.T) {
 		},
 	}
 
-	plan := differ.Compare(sourceDB, targetDB)
+	plan, err := differ.Compare(sourceDB, targetDB)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var hasCreateTable, hasAddPK, hasCreateIndex, hasAddFK bool
 

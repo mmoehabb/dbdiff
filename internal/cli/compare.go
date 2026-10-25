@@ -12,7 +12,6 @@ import (
 	"github.com/mmoehabb/dbdiff/internal/adapters/text"
 	"github.com/mmoehabb/dbdiff/internal/application"
 	"github.com/mmoehabb/dbdiff/internal/domain/diff"
-	"github.com/mmoehabb/dbdiff/internal/domain/schema"
 	"github.com/mmoehabb/dbdiff/internal/ports"
 )
 
@@ -28,48 +27,6 @@ var (
 	exclude          bool
 	dataFlag         bool
 )
-
-func filterDatabase(db *schema.Database, allowedTables []string, exclude bool) *schema.Database {
-	if len(allowedTables) == 0 {
-		return db
-	}
-
-	allowedMap := make(map[string]bool)
-	for _, t := range allowedTables {
-		allowedMap[t] = true
-	}
-
-	filteredDB := &schema.Database{
-		Name:    db.Name,
-		Schemas: make(map[string]*schema.Schema),
-	}
-
-	for schemaName, s := range db.Schemas {
-		filteredSchema := &schema.Schema{
-			Name:   s.Name,
-			Tables: make(map[string]*schema.Table),
-		}
-
-		hasTables := false
-		for tableName, t := range s.Tables {
-			fullTableName := fmt.Sprintf("%s.%s", schemaName, tableName)
-			inAllowedList := allowedMap[fullTableName]
-
-			// If exclude is true, we want tables NOT in the list.
-			// If exclude is false, we want tables IN the list.
-			if (exclude && !inAllowedList) || (!exclude && inAllowedList) {
-				filteredSchema.Tables[tableName] = t
-				hasTables = true
-			}
-		}
-
-		if hasTables {
-			filteredDB.Schemas[schemaName] = filteredSchema
-		}
-	}
-
-	return filteredDB
-}
 
 var compareCmd = &cobra.Command{
 	Use:   "compare",
@@ -130,8 +87,11 @@ var compareCmd = &cobra.Command{
 			}
 		}
 
-		sourceSchema = filterDatabase(sourceSchema, tables, exclude)
-		targetSchema = filterDatabase(targetSchema, tables, exclude)
+		sourceSchema, targetSchema, err = application.SelectTables(sourceSchema, targetSchema, application.CompareOptions{Tables: tables, Exclude: exclude, IncludeData: dataFlag})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error selecting tables: %v\n", err)
+			os.Exit(2)
+		}
 
 		if !quiet {
 			fmt.Fprintln(os.Stderr, "Comparing schemas...")
@@ -143,6 +103,8 @@ var compareCmd = &cobra.Command{
 		}
 
 		plan := result.Plan
+		hasDifferences := len(plan.SchemaOperations) > 0
+		plan.ApplySafety(allowDestructive)
 
 		if dataFlag {
 			if !quiet {
@@ -152,39 +114,22 @@ var compareCmd = &cobra.Command{
 			targetDataReader := mssql.NewMSSQLDataReader(target)
 			dataDiffer := diff.NewDataDiffer(sourceDataReader, targetDataReader)
 
-			dataOps, err := dataDiffer.CompareData(ctx, sourceSchema, targetSchema)
+			dataOps, err := dataDiffer.CompareData(ctx, sourceSchema, targetSchema, plan.BlockedTables)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error comparing data: %v\n", err)
 				os.Exit(2)
 			}
 			plan.DataOperations = dataOps
+			for _, table := range dataDiffer.OmittedTables {
+				plan.Omitted = append(plan.Omitted, diff.Diagnostic{ID: "data:" + table, Reason: "depends on omitted schema changes"})
+			}
 		}
 
-		hasDifferences := len(plan.SchemaOperations) > 0 || len(plan.DataOperations) > 0
+		hasDifferences = hasDifferences || len(plan.DataOperations) > 0
 
-		// Handle destructive operations
-		if plan.HasDestructiveOperations() {
-			if !allowDestructive {
-				fmt.Fprintln(os.Stderr, "\033[33mWarning: Destructive operations detected. They have been omitted.\033[0m")
-				fmt.Fprintln(os.Stderr, "\033[33mUse --allow-destructive to include them.\033[0m")
-
-				// Filter out destructive operations
-				filteredOps := []diff.Operation{}
-				for _, op := range plan.SchemaOperations {
-					if !op.IsDestructive() {
-						filteredOps = append(filteredOps, op)
-					}
-				}
-				plan.SchemaOperations = filteredOps
-
-				filteredDataOps := []diff.Operation{}
-				for _, op := range plan.DataOperations {
-					if !op.IsDestructive() {
-						filteredDataOps = append(filteredDataOps, op)
-					}
-				}
-				plan.DataOperations = filteredDataOps
-			}
+		plan.FilterData(allowDestructive)
+		for _, diagnostic := range plan.Omitted {
+			fmt.Fprintf(os.Stderr, "Warning: omitted %s: %s\n", diagnostic.ID, diagnostic.Reason)
 		}
 
 		// Select renderer

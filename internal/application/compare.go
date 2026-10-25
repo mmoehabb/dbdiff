@@ -21,7 +21,13 @@ func Compare(
 	differ ports.Differ,
 ) (*ComparisonResult, error) {
 
-	migrationPlan := differ.Compare(sourceSchema, targetSchema)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	migrationPlan, err := differ.Compare(sourceSchema, targetSchema)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ComparisonResult{
 		Plan: migrationPlan,

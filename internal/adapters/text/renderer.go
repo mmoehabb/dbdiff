@@ -34,6 +34,12 @@ func (r *TextRenderer) Render(ctx context.Context, plan *diff.MigrationPlan) (st
 		}
 	}
 
+	if len(plan.Omitted) > 0 {
+		builder.WriteString("Omitted changes:\n")
+		for _, d := range plan.Omitted {
+			fmt.Fprintf(&builder, "! %s: %s\n", d.ID, d.Reason)
+		}
+	}
 	return builder.String(), nil
 }
 
@@ -84,6 +90,6 @@ func (r *TextRenderer) renderOperation(op diff.Operation) string {
 	case diff.DeleteDataOperation:
 		return fmt.Sprintf("- DELETE DATA ROW FROM %s.%s", o.SchemaName, o.TableName)
 	default:
-		return fmt.Sprintf("? UNKNOWN OPERATION: %T", op)
+		return fmt.Sprintf("~ %s %+v", strings.ToUpper(string(op.OperationType())), op)
 	}
 }

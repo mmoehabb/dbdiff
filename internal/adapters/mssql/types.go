@@ -8,7 +8,7 @@ import (
 
 func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale int) schema.DataType {
 	sqlType = strings.ToLower(sqlType)
-	dt := schema.DataType{}
+	dt := schema.DataType{NativeType: sqlType}
 
 	switch sqlType {
 	case "varchar", "nvarchar", "char", "nchar", "text", "ntext":
@@ -37,10 +37,11 @@ func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale in
 	case "date":
 		dt.Kind = schema.TypeDate
 	case "datetime", "datetime2", "time", "smalldatetime", "datetimeoffset":
+		dt.Scale = &scale
 		dt.Kind = schema.TypeDateTime
 	case "uniqueidentifier":
 		dt.Kind = schema.TypeUUID
-	case "binary", "varbinary", "image":
+	case "binary", "varbinary", "image", "timestamp", "rowversion":
 		dt.Kind = schema.TypeBinary
 		if maxLength > 0 {
 			dt.Length = &maxLength
@@ -48,9 +49,11 @@ func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale in
 			l := -1
 			dt.Length = &l
 		}
+	case "float", "real":
+		dt.Kind = schema.TypeDecimal
+		dt.Precision = &precision
 	default:
-		// Fallback for unsupported types
-		dt.Kind = schema.TypeString
+		// An empty kind is rejected by planning; never coerce unknown types to text.
 	}
 
 	return dt
@@ -59,11 +62,6 @@ func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale in
 func parseDefaultValue(val string) *schema.DefaultExpression {
 	if val == "" {
 		return nil
-	}
-	// Strip outer parentheses commonly added by SQL Server
-	// e.g. ((0)) -> 0, ('abc') -> 'abc'
-	for strings.HasPrefix(val, "(") && strings.HasSuffix(val, ")") {
-		val = val[1 : len(val)-1]
 	}
 	return &schema.DefaultExpression{Value: val}
 }

@@ -15,10 +15,11 @@ const (
 )
 
 type DataType struct {
-	Kind      DataTypeKind
-	Length    *int
-	Precision *int
-	Scale     *int
+	NativeType string
+	Kind       DataTypeKind
+	Length     *int
+	Precision  *int
+	Scale      *int
 }
 type DefaultExpression struct {
 	Name  string
@@ -30,7 +31,19 @@ type Column struct {
 	Nullable           bool
 	Default            *DefaultExpression
 	Identity           bool
+	IdentitySeed       string
+	IdentityIncrement  string
+	Collation          string
+	Ordinal            int
+	Generated          bool
+	Persisted          bool
 	Computed           bool
 	ComputedExpr       string
-	ExtendedProperties map[string]string
+	ExtendedProperties map[string]PropertyValue
+}
+
+// TemporalValue retains the SQL type when Go's time.Time alone is ambiguous.
+type TemporalValue struct {
+	Type string
+	Text string
 }

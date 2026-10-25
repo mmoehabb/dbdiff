@@ -13,6 +13,9 @@ type SchemaDiff struct {
 type MigrationPlan struct {
 	SchemaOperations []Operation
 	DataOperations   []Operation
+	Metadata         map[string]StepMetadata
+	Omitted          []Diagnostic
+	BlockedTables    map[string]bool
 }
 
 // HasDestructiveOperations returns true if the plan contains any destructive operations.
@@ -48,25 +51,5 @@ func (p *MigrationPlan) GetDestructiveOperations() []Operation {
 
 // SortOperations sorts the SchemaOperations to ensure dependency ordering.
 func (p *MigrationPlan) SortOperations() {
-	priority := map[OperationType]int{
-		DropForeignKey: 1,
-		DropIndex:      2,
-		DropPrimaryKey: 3,
-		DropColumn:     4,
-		DropTable:      5,
-		DropSchema:     6,
-		CreateSchema:   7,
-		CreateTable:    8,
-		AddColumn:      9,
-		AlterColumn:    10,
-		AddPrimaryKey:  11,
-		CreateIndex:    12,
-		AddForeignKey:  13,
-	}
-
-	sort.SliceStable(p.SchemaOperations, func(i, j int) bool {
-		opI := p.SchemaOperations[i].OperationType()
-		opJ := p.SchemaOperations[j].OperationType()
-		return priority[opI] < priority[opJ]
-	})
+	sort.SliceStable(p.SchemaOperations, func(i, j int) bool { return lessOperation(p.SchemaOperations[i], p.SchemaOperations[j]) })
 }

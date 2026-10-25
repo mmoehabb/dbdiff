@@ -1,7 +1,9 @@
 package diff
 
 import (
+	"fmt"
 	"github.com/mmoehabb/dbdiff/internal/domain/schema"
+	"reflect"
 )
 
 // SchemaDiffer implements ports.Differ
@@ -15,14 +17,20 @@ func NewSchemaDiffer() *SchemaDiffer {
 // Compare compares the source and target databases and returns a MigrationPlan
 // representing the operations required to transform target into source.
 // Semantic rule: target + migration = source
-func (d *SchemaDiffer) Compare(source, target *schema.Database) *MigrationPlan {
+func (d *SchemaDiffer) Compare(source, target *schema.Database) (*MigrationPlan, error) {
 	plan := &MigrationPlan{
 		SchemaOperations: []Operation{},
 	}
 
 	if source == nil || target == nil {
-		return plan
+		return nil, fmt.Errorf("source and target schemas are required")
 	}
+
+	if err := validateSchemas(source, target); err != nil {
+		return nil, err
+	}
+	originalTarget := target
+	target = d.prepareDependencies(source, target, plan)
 
 	// Compare Partition Functions
 	for pfName, sourcePf := range source.PartitionFunctions {
@@ -88,6 +96,13 @@ func (d *SchemaDiffer) Compare(source, target *schema.Database) *MigrationPlan {
 
 	for schemaName := range target.Schemas {
 		if _, exists := source.Schemas[schemaName]; !exists {
+			// Remove schema contents before the namespace.
+			d.compareTables(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
+			d.compareViews(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
+			d.compareProcedures(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
+			d.compareFunctions(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
+			d.compareSynonyms(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
+			d.compareSequences(&schema.Schema{Name: schemaName}, target.Schemas[schemaName], plan)
 			// Drop extra schema
 			plan.SchemaOperations = append(plan.SchemaOperations, DropSchemaOperation{
 				SchemaName: schemaName,
@@ -95,8 +110,11 @@ func (d *SchemaDiffer) Compare(source, target *schema.Database) *MigrationPlan {
 		}
 	}
 
-	plan.SortOperations()
-	return plan
+	d.compareProperties(source, target, plan)
+	if err := plan.Finalize(source, originalTarget); err != nil {
+		return nil, err
+	}
+	return plan, nil
 }
 
 func (d *SchemaDiffer) compareTables(sourceSchema, targetSchema *schema.Schema, plan *MigrationPlan) {
@@ -134,19 +152,20 @@ func (d *SchemaDiffer) compareTables(sourceSchema, targetSchema *schema.Schema, 
 				Indexes:     make(map[string]*schema.Index),
 				Triggers:    make(map[string]*schema.Trigger),
 			}
+			d.compareChecks(sourceSchema.Name, sourceTable, dummyTarget, plan)
 			d.comparePrimaryKeys(sourceSchema.Name, sourceTable, dummyTarget, plan)
 			d.compareIndexes(sourceSchema.Name, sourceTable, dummyTarget, plan)
 			d.compareForeignKeys(sourceSchema.Name, sourceTable, dummyTarget, plan)
 			d.compareTriggers(sourceSchema.Name, sourceTable, dummyTarget, plan)
-			d.compareTableExtendedProperties(sourceSchema.Name, sourceTable, dummyTarget, plan)
+
 		} else {
 			// Compare existing table
+			d.compareChecks(sourceSchema.Name, sourceTable, targetTable, plan)
 			d.compareColumns(sourceSchema.Name, sourceTable, targetTable, plan)
 			d.comparePrimaryKeys(sourceSchema.Name, sourceTable, targetTable, plan)
 			d.compareIndexes(sourceSchema.Name, sourceTable, targetTable, plan)
 			d.compareForeignKeys(sourceSchema.Name, sourceTable, targetTable, plan)
 			d.compareTriggers(sourceSchema.Name, sourceTable, targetTable, plan)
-			d.compareTableExtendedProperties(sourceSchema.Name, sourceTable, targetTable, plan)
 
 			if sourceTable.IsSystemVersioned != targetTable.IsSystemVersioned || sourceTable.IsReplicated != targetTable.IsReplicated || sourceTable.PartitionScheme != targetTable.PartitionScheme || sourceTable.PartitionColumn != targetTable.PartitionColumn || sourceTable.FileGroup != targetTable.FileGroup {
 				plan.SchemaOperations = append(plan.SchemaOperations, AlterTablePropertiesOperation{
@@ -193,6 +212,8 @@ func (d *SchemaDiffer) compareColumns(schemaName string, sourceTable, targetTabl
 					TableName:      sourceTable.Name,
 					Column:         *sourceCol,
 					OldDefaultName: oldDefaultName,
+					OldColumn:      targetCol,
+					Destructive:    columnDestructive(sourceCol, targetCol),
 				})
 			}
 		}
@@ -202,15 +223,19 @@ func (d *SchemaDiffer) compareColumns(schemaName string, sourceTable, targetTabl
 		if _, exists := sourceTable.Columns[columnName]; !exists {
 			// Drop extra column
 			plan.SchemaOperations = append(plan.SchemaOperations, DropColumnOperation{
-				SchemaName: schemaName,
-				TableName:  sourceTable.Name,
-				ColumnName: columnName,
+				SchemaName:  schemaName,
+				TableName:   sourceTable.Name,
+				ColumnName:  columnName,
+				DefaultName: defaultName(targetTable.Columns[columnName]),
 			})
 		}
 	}
 }
 
 func (d *SchemaDiffer) isColumnEqual(sourceCol, targetCol *schema.Column) bool {
+	if sourceCol.Type.NativeType != targetCol.Type.NativeType || sourceCol.Collation != targetCol.Collation || sourceCol.Persisted != targetCol.Persisted || sourceCol.IdentitySeed != targetCol.IdentitySeed || sourceCol.IdentityIncrement != targetCol.IdentityIncrement {
+		return false
+	}
 	if sourceCol.Type.Kind != targetCol.Type.Kind {
 		return false
 	}
@@ -254,15 +279,17 @@ func (d *SchemaDiffer) comparePrimaryKeys(schemaName string, sourceTable, target
 		})
 	} else if sourceTable.PrimaryKey == nil && targetTable.PrimaryKey != nil {
 		plan.SchemaOperations = append(plan.SchemaOperations, DropPrimaryKeyOperation{
-			SchemaName: schemaName,
-			TableName:  sourceTable.Name,
+			ConstraintName: targetTable.PrimaryKey.Name,
+			SchemaName:     schemaName,
+			TableName:      sourceTable.Name,
 		})
 	} else if sourceTable.PrimaryKey != nil && targetTable.PrimaryKey != nil {
 		// Compare PKs
 		if !d.isPrimaryKeyEqual(sourceTable.PrimaryKey, targetTable.PrimaryKey) {
 			plan.SchemaOperations = append(plan.SchemaOperations, DropPrimaryKeyOperation{
-				SchemaName: schemaName,
-				TableName:  sourceTable.Name,
+				ConstraintName: targetTable.PrimaryKey.Name,
+				SchemaName:     schemaName,
+				TableName:      sourceTable.Name,
 			})
 			plan.SchemaOperations = append(plan.SchemaOperations, AddPrimaryKeyOperation{
 				SchemaName: schemaName,
@@ -274,10 +301,9 @@ func (d *SchemaDiffer) comparePrimaryKeys(schemaName string, sourceTable, target
 }
 
 func (d *SchemaDiffer) isPrimaryKeyEqual(sourcePK, targetPK *schema.PrimaryKey) bool {
-	if sourcePK.Name != targetPK.Name && (sourcePK.Name != "" && targetPK.Name != "") {
-		// Strict name checking if both are provided, though in many engines PK names might be auto-generated.
-		// For true semantic diff, compare columns. If columns match, it's the same PK.
-		// We'll compare names if they matter, but definitely columns.
+	// Auto-generated PK names are not semantic differences. Drops use the actual target name.
+	if sourcePK.Clustered != targetPK.Clustered || !directionsEqual(sourcePK.Descending, targetPK.Descending, len(sourcePK.Columns)) {
+		return false
 	}
 	if len(sourcePK.Columns) != len(targetPK.Columns) {
 		return false
@@ -302,9 +328,10 @@ func (d *SchemaDiffer) compareIndexes(schemaName string, sourceTable, targetTabl
 		} else {
 			if !d.isIndexEqual(sourceIdx, targetIdx) {
 				plan.SchemaOperations = append(plan.SchemaOperations, DropIndexOperation{
-					SchemaName: schemaName,
-					TableName:  sourceTable.Name,
-					IndexName:  indexName,
+					SchemaName:   schemaName,
+					TableName:    sourceTable.Name,
+					IndexName:    indexName,
+					IsConstraint: targetTable.Indexes[indexName].IsConstraint,
 				})
 				plan.SchemaOperations = append(plan.SchemaOperations, CreateIndexOperation{
 					SchemaName: schemaName,
@@ -318,15 +345,19 @@ func (d *SchemaDiffer) compareIndexes(schemaName string, sourceTable, targetTabl
 	for indexName := range targetTable.Indexes {
 		if _, exists := sourceTable.Indexes[indexName]; !exists {
 			plan.SchemaOperations = append(plan.SchemaOperations, DropIndexOperation{
-				SchemaName: schemaName,
-				TableName:  sourceTable.Name,
-				IndexName:  indexName,
+				SchemaName:   schemaName,
+				TableName:    sourceTable.Name,
+				IndexName:    indexName,
+				IsConstraint: targetTable.Indexes[indexName].IsConstraint,
 			})
 		}
 	}
 }
 
 func (d *SchemaDiffer) isIndexEqual(sourceIdx, targetIdx *schema.Index) bool {
+	if !indexOptionsEqual(sourceIdx, targetIdx) {
+		return false
+	}
 	if sourceIdx.IsUnique != targetIdx.IsUnique {
 		return false
 	}
@@ -427,7 +458,7 @@ func (d *SchemaDiffer) compareViews(sourceSchema, targetSchema *schema.Schema, p
 		}
 		if targetView == nil {
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateViewOperation{SchemaName: sourceSchema.Name, View: *sourceView})
-		} else if sourceView.Definition != targetView.Definition {
+		} else if sourceView.Definition != targetView.Definition || sourceView.UsesANSI_NULLS != targetView.UsesANSI_NULLS || sourceView.UsesQuotedIdentifier != targetView.UsesQuotedIdentifier {
 			plan.SchemaOperations = append(plan.SchemaOperations, AlterViewOperation{SchemaName: sourceSchema.Name, View: *sourceView})
 		}
 	}
@@ -451,7 +482,7 @@ func (d *SchemaDiffer) compareProcedures(sourceSchema, targetSchema *schema.Sche
 		}
 		if targetProc == nil {
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateProcedureOperation{SchemaName: sourceSchema.Name, Procedure: *sourceProc})
-		} else if sourceProc.Definition != targetProc.Definition {
+		} else if sourceProc.Definition != targetProc.Definition || sourceProc.UsesANSI_NULLS != targetProc.UsesANSI_NULLS || sourceProc.UsesQuotedIdentifier != targetProc.UsesQuotedIdentifier {
 			plan.SchemaOperations = append(plan.SchemaOperations, AlterProcedureOperation{SchemaName: sourceSchema.Name, Procedure: *sourceProc})
 		}
 	}
@@ -475,7 +506,7 @@ func (d *SchemaDiffer) compareFunctions(sourceSchema, targetSchema *schema.Schem
 		}
 		if targetFunc == nil {
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateFunctionOperation{SchemaName: sourceSchema.Name, Function: *sourceFunc})
-		} else if sourceFunc.Definition != targetFunc.Definition {
+		} else if sourceFunc.Definition != targetFunc.Definition || sourceFunc.UsesANSI_NULLS != targetFunc.UsesANSI_NULLS || sourceFunc.UsesQuotedIdentifier != targetFunc.UsesQuotedIdentifier {
 			plan.SchemaOperations = append(plan.SchemaOperations, AlterFunctionOperation{SchemaName: sourceSchema.Name, Function: *sourceFunc})
 		}
 	}
@@ -604,7 +635,7 @@ func (d *SchemaDiffer) compareTriggers(schemaName string, sourceTable, targetTab
 		}
 		if targetTrig == nil {
 			plan.SchemaOperations = append(plan.SchemaOperations, CreateTriggerOperation{SchemaName: schemaName, TableName: sourceTable.Name, Trigger: *sourceTrig})
-		} else if sourceTrig.Definition != targetTrig.Definition {
+		} else if sourceTrig.Definition != targetTrig.Definition || sourceTrig.UsesANSI_NULLS != targetTrig.UsesANSI_NULLS || sourceTrig.UsesQuotedIdentifier != targetTrig.UsesQuotedIdentifier {
 			plan.SchemaOperations = append(plan.SchemaOperations, AlterTriggerOperation{SchemaName: schemaName, TableName: sourceTable.Name, Trigger: *sourceTrig})
 		}
 	}
@@ -617,22 +648,21 @@ func (d *SchemaDiffer) compareTriggers(schemaName string, sourceTable, targetTab
 	}
 }
 
-func (d *SchemaDiffer) compareTableExtendedProperties(schemaName string, sourceTable, targetTable *schema.Table, plan *MigrationPlan) {
-	for epName, sourceVal := range sourceTable.ExtendedProperties {
-		targetVal, exists := targetTable.ExtendedProperties[epName]
-		level := ExtendedPropertyLevel{Level0Type: "SCHEMA", Level0Name: schemaName, Level1Type: "TABLE", Level1Name: sourceTable.Name}
-		if !exists {
-			plan.SchemaOperations = append(plan.SchemaOperations, AddExtendedPropertyOperation{Name: epName, Value: sourceVal, Level: level})
-		} else if sourceVal != targetVal {
-			plan.SchemaOperations = append(plan.SchemaOperations, AlterExtendedPropertyOperation{Name: epName, Value: sourceVal, Level: level})
+func defaultName(c *schema.Column) string {
+	if c.Default != nil {
+		return c.Default.Name
+	}
+	return ""
+}
+func (d *SchemaDiffer) compareChecks(sn string, source, target *schema.Table, p *MigrationPlan) {
+	for n, old := range target.Checks {
+		if next := source.Checks[n]; next == nil || !reflect.DeepEqual(next, old) {
+			p.SchemaOperations = append(p.SchemaOperations, DropCheckOperation{sn, source.Name, n})
 		}
 	}
-	if targetTable != nil {
-		for epName := range targetTable.ExtendedProperties {
-			if _, exists := sourceTable.ExtendedProperties[epName]; !exists {
-				level := ExtendedPropertyLevel{Level0Type: "SCHEMA", Level0Name: schemaName, Level1Type: "TABLE", Level1Name: sourceTable.Name}
-				plan.SchemaOperations = append(plan.SchemaOperations, DropExtendedPropertyOperation{Name: epName, Level: level})
-			}
+	for n, next := range source.Checks {
+		if old := target.Checks[n]; old == nil || !reflect.DeepEqual(next, old) {
+			p.SchemaOperations = append(p.SchemaOperations, AddCheckOperation{sn, source.Name, *next})
 		}
 	}
 }

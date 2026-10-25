@@ -104,8 +104,9 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 				},
 			},
 			diff.DropPrimaryKeyOperation{
-				SchemaName: "dbo",
-				TableName:  "users",
+				ConstraintName: "PK_users",
+				SchemaName:     "dbo",
+				TableName:      "users",
 			},
 			diff.AddForeignKeyOperation{
 				SchemaName: "dbo",
@@ -153,16 +154,16 @@ func TestMSSQLRenderer_Render(t *testing.T) {
 
 	expectedParts := []string{
 		"BEGIN TRANSACTION;",
-		"EXEC('CREATE SCHEMA [dbo]');",
+		"CREATE SCHEMA [dbo];",
 		"CREATE TABLE [dbo].[users] (\n    [email] NVARCHAR(255) NULL,\n    [id] INT NOT NULL IDENTITY(1,1),\n    [meta] NVARCHAR(MAX) CHECK (ISJSON([meta]) > 0) NULL\n);",
 		"ALTER TABLE [dbo].[users] ADD [active] BIT NOT NULL DEFAULT 1;",
 		"ALTER TABLE [dbo].[users] ALTER COLUMN [email] NVARCHAR(500) NOT NULL;",
 		"ALTER TABLE [dbo].[users] DROP COLUMN [old_column];",
-		"ALTER TABLE [dbo].[users] ADD CONSTRAINT [PK_users] PRIMARY KEY ([id]);",
-		"-- TODO: Drop PK on [dbo].[users] (Name unknown)\nALTER TABLE [dbo].[users] DROP CONSTRAINT [PK_users];",
+		"ALTER TABLE [dbo].[users] ADD CONSTRAINT [PK_users] PRIMARY KEY NONCLUSTERED ([id]);",
+		"ALTER TABLE [dbo].[users] DROP CONSTRAINT [PK_users];",
 		"ALTER TABLE [dbo].[orders] ADD CONSTRAINT [FK_orders_users] FOREIGN KEY ([user_id]) REFERENCES [dbo].[users] ([id]);",
 		"ALTER TABLE [dbo].[orders] DROP CONSTRAINT [FK_orders_old];",
-		"CREATE UNIQUE INDEX [IX_users_email] ON [dbo].[users] ([email]);",
+		"CREATE UNIQUE NONCLUSTERED INDEX [IX_users_email] ON [dbo].[users] ([email]);",
 		"DROP INDEX [IX_users_old] ON [dbo].[users];",
 		"DROP TABLE [dbo].[legacy_users];",
 		"DROP SCHEMA [legacy_schema];",
@@ -199,7 +200,7 @@ func TestMSSQLRenderer_RenderInsertData(t *testing.T) {
 	}
 
 	expectedPrefix := "SET IDENTITY_INSERT [dbo].[users] ON;"
-	expectedInsert := "INSERT INTO [dbo].[users] ([id], [name]) VALUES (1, N'Alice');"
+	expectedInsert := "INSERT INTO [dbo].[users] ([id], [name]) VALUES (1, N''Alice'');"
 	expectedSuffix := "SET IDENTITY_INSERT [dbo].[users] OFF;"
 
 	if !strings.Contains(sql, expectedPrefix) {
@@ -332,7 +333,7 @@ func TestMSSQLRenderer_DataOperations_Constraints(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(sql, "EXEC sp_msforeachtable 'ALTER TABLE ? NOCHECK CONSTRAINT all';") {
-		t.Errorf("expected SQL to contain NOCHECK CONSTRAINT all")
+	if strings.Contains(sql, "NOCHECK") || strings.Contains(sql, "sp_msforeachtable") {
+		t.Errorf("data scripts must preserve constraint enforcement")
 	}
 }

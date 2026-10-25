@@ -14,8 +14,8 @@ type MockDiffer struct {
 	plan *diff.MigrationPlan
 }
 
-func (m *MockDiffer) Compare(source, target *schema.Database) *diff.MigrationPlan {
-	return m.plan
+func (m *MockDiffer) Compare(source, target *schema.Database) (*diff.MigrationPlan, error) {
+	return m.plan, nil
 }
 
 func TestCompare(t *testing.T) {
