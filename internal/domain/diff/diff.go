@@ -16,6 +16,7 @@ type MigrationPlan struct {
 	Metadata         map[string]StepMetadata
 	Omitted          []Diagnostic
 	BlockedTables    map[string]bool
+	Incomplete       bool // Unsupported changes or data synchronization were omitted.
 }
 
 // HasDestructiveOperations returns true if the plan contains any destructive operations.

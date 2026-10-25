@@ -3,7 +3,7 @@ package schema
 // Table represents a database table.
 type Table struct {
 	Name               string
-	Unsupported        []string
+	Features           []Feature
 	Statistics         map[string]bool
 	UserStatistics     map[string][]string
 	Checks             map[string]*CheckConstraint
@@ -66,4 +66,14 @@ type Index struct {
 type CheckConstraint struct {
 	Name       string
 	Definition string
+}
+
+// Feature describes catalog metadata that the migration renderer cannot reproduce.
+// Scope is table, index, column, foreign_key, check, or trigger. Detail is a
+// stable catalog representation, used to detect unsupported feature changes.
+type Feature struct {
+	Kind   string
+	Scope  string
+	Name   string
+	Detail string
 }

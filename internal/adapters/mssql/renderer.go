@@ -114,7 +114,7 @@ func (r *MSSQLRenderer) renderOperation(op diff.Operation) (string, error) {
 		if o.PrimaryKey.Clustered {
 			kind = "CLUSTERED"
 		}
-		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD CONSTRAINT " + quote(name) + " PRIMARY KEY " + kind + " (" + columns(o.PrimaryKey.Columns, o.PrimaryKey.Descending) + ");", nil
+		return "ALTER TABLE " + qualified(o.SchemaName, o.TableName) + " ADD CONSTRAINT " + quote(name) + " PRIMARY KEY " + kind + " (" + columns(o.PrimaryKey.Columns, o.PrimaryKey.Descending) + ") ON [PRIMARY];", nil
 	case diff.DropPrimaryKeyOperation:
 		if o.ConstraintName == "" {
 			return "", fmt.Errorf("primary key name missing for %s.%s", o.SchemaName, o.TableName)
@@ -340,7 +340,7 @@ func (r *MSSQLRenderer) renderCreateTable(o diff.CreateTableOperation) (string, 
 		builder.WriteString("\n")
 	}
 
-	builder.WriteString(");")
+	builder.WriteString(") ON [PRIMARY];")
 	return builder.String(), nil
 }
 

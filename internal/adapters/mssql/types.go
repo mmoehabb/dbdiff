@@ -53,7 +53,7 @@ func mapMSSQLTypeToDomain(sqlType string, maxLength int, precision int, scale in
 		dt.Kind = schema.TypeDecimal
 		dt.Precision = &precision
 	default:
-		// An empty kind is rejected by planning; never coerce unknown types to text.
+		// An empty kind blocks affected migrations; never coerce unknown types to text.
 	}
 
 	return dt

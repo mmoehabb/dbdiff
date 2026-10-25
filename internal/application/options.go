@@ -34,6 +34,12 @@ func SelectTables(source, target *schema.Database, options CompareOptions) (*sch
 		out.Schemas = map[string]*schema.Schema{}
 		out.PartitionFunctions = nil
 		out.ExtendedProperties = nil
+		out.Features = nil
+		for _, f := range db.Features {
+			if f.Feature.Scope == "database" {
+				out.Features = append(out.Features, f)
+			}
+		}
 		for sn, s := range db.Schemas {
 			ns := &schema.Schema{Name: sn, Tables: map[string]*schema.Table{}}
 			for tn, t := range s.Tables {

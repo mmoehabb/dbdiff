@@ -104,3 +104,33 @@ func TestFunctionIntrospectionPreservesKind(t *testing.T) {
 		})
 	}
 }
+
+func TestObjectFeaturesRegisterOwningNamespaces(t *testing.T) {
+	db := metadataDB(t, [][]driver.Value{
+		{"types", "Rows", "user-defined type", "type", "table definition"},
+		{"security", "Policy", "security policy", "security_policy", "policy definition"},
+		{"", "DatabaseTrigger", "view or database trigger", "database", "trigger definition"},
+	}, nil)
+	snapshot := &schema.Database{Schemas: map[string]*schema.Schema{}}
+	if err := NewMSSQLIntrospector("").loadObjectFeatures(context.Background(), db, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"types", "security"} {
+		s := snapshot.Schemas[name]
+		if s == nil || s.Name != name || s.Tables == nil {
+			t.Fatalf("unsupported object's namespace %q not registered: %+v", name, snapshot.Schemas)
+		}
+	}
+	if len(snapshot.Schemas) != 2 || len(snapshot.Features) != 3 {
+		t.Fatalf("unexpected namespaces or features: %+v", snapshot)
+	}
+}
+
+func TestObjectFeatureIterationFailurePropagates(t *testing.T) {
+	failure := errors.New("catalog interrupted")
+	db := metadataDB(t, [][]driver.Value{{"types", "Rows", "user-defined type", "type", "definition"}}, failure)
+	snapshot := &schema.Database{Schemas: map[string]*schema.Schema{}}
+	if err := NewMSSQLIntrospector("").loadObjectFeatures(context.Background(), db, snapshot); !errors.Is(err, failure) {
+		t.Fatalf("partial object-feature snapshot accepted: %v", err)
+	}
+}

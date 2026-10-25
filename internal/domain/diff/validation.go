@@ -60,112 +60,12 @@ func columnDestructive(next, old *schema.Column) bool {
 	return false
 }
 func validateSchemas(source, target *schema.Database) error {
-	for _, db := range []*schema.Database{source, target} {
+	for side, db := range []*schema.Database{source, target} {
 		if len(db.Unsupported) > 0 {
-			return fmt.Errorf("database %s: unsupported metadata: %s", db.Name, strings.Join(db.Unsupported, "; "))
-		}
-		if len(db.PartitionFunctions) > 0 {
-			return fmt.Errorf("partition function migrations are not supported")
-		}
-		for sn, s := range db.Schemas {
-			if len(s.PartitionSchemes) > 0 {
-				return fmt.Errorf("partition schemes in %s are not supported", sn)
-			}
-			for tn, t := range s.Tables {
-				if t.IsSystemVersioned || t.IsReplicated || t.PartitionScheme != "" || len(t.Unsupported) > 0 {
-					return fmt.Errorf("unsupported table %s.%s: temporal, replicated, partitioned, or specialized storage (%s)", sn, tn, strings.Join(t.Unsupported, "; "))
-				}
-				for _, c := range t.Columns {
-					if c.Type.Kind == "" {
-						return fmt.Errorf("unsupported type %s on %s.%s.%s", c.Type.NativeType, sn, tn, c.Name)
-					}
-				}
-				for _, idx := range t.Indexes {
-					if idx.Disabled {
-						return fmt.Errorf("disabled index %s.%s.%s is not supported", sn, tn, idx.Name)
-					}
-				}
-			}
+			return fmt.Errorf("%s database %q: incomplete or unsupported metadata: %s", []string{"source", "target"}[side], db.Name, strings.Join(db.Unsupported, "; "))
 		}
 	}
-	for _, dep := range target.Dependencies {
-		if !dep.SchemaBound {
-			continue
-		}
-		ts := target.Schemas[dep.RefSchema]
-		if ts == nil {
-			continue
-		}
-		old := ts.Tables[dep.RefObject]
-		if old == nil {
-			continue
-		}
-		var next *schema.Table
-		if ss := source.Schemas[dep.RefSchema]; ss != nil {
-			next = ss.Tables[dep.RefObject]
-		}
-		if next == nil { // Dropping both dependency and dependent is ordered by the planner.
-			ss := source.Schemas[dep.Schema]
-			if ss != nil && (ss.Views[dep.Object] != nil || ss.Functions[dep.Object] != nil || ss.Tables[dep.Object] != nil) {
-				return fmt.Errorf("cannot drop %s.%s with retained schema-bound dependent %s.%s", dep.RefSchema, dep.RefObject, dep.Schema, dep.Object)
-			}
-			continue
-		}
-		for n, oc := range old.Columns {
-			nc := next.Columns[n]
-			if nc == nil || !reflect.DeepEqual(nc.Type, oc.Type) || nc.Collation != oc.Collation || nc.Nullable != oc.Nullable {
-				return fmt.Errorf("column change on %s.%s requires rebuilding schema-bound dependent %s.%s", dep.RefSchema, dep.RefObject, dep.Schema, dep.Object)
-			}
-		}
-	}
-	if err := validateNames(source, target); err != nil {
-		return err
-	}
-	for sn, s := range source.Schemas {
-		ts := target.Schemas[sn]
-		if ts == nil {
-			continue
-		}
-		for tn, t := range s.Tables {
-			old := ts.Tables[tn]
-			if old == nil {
-				continue
-			}
-			for name, columns := range old.UserStatistics {
-				for _, column := range columns {
-					before, after := old.Columns[column], t.Columns[column]
-					if after == nil || before == nil || !reflect.DeepEqual(before.Type, after.Type) || before.Collation != after.Collation || before.Nullable != after.Nullable {
-						return fmt.Errorf("column change on %s.%s requires rebuilding unsupported standalone statistics %s", sn, tn, name)
-					}
-				}
-			}
-			for cn, c := range t.Columns {
-				oc := old.Columns[cn]
-				if oc == nil {
-					continue
-				}
-				if c.Identity != oc.Identity || c.IdentitySeed != oc.IdentitySeed || c.IdentityIncrement != oc.IdentityIncrement || c.Computed != oc.Computed || c.ComputedExpr != oc.ComputedExpr || c.Persisted != oc.Persisted || c.Generated != oc.Generated {
-					return fmt.Errorf("%s.%s.%s requires an unsupported identity/computed/generated column rebuild", sn, tn, cn)
-				}
-			}
-			for n, idx := range t.Indexes {
-				if old.Statistics[n] && old.Indexes[n] == nil {
-					return fmt.Errorf("index %s.%s.%s conflicts with existing standalone statistics", sn, tn, idx.Name)
-				}
-			}
-		}
-		for n, function := range s.Functions {
-			if prev := ts.Functions[n]; prev != nil && function.Kind != prev.Kind {
-				return fmt.Errorf("function %s.%s kind change from %q to %q requires an explicit drop/recreate migration", sn, n, prev.Kind, function.Kind)
-			}
-		}
-		for n, seq := range s.Sequences {
-			if prev := ts.Sequences[n]; prev != nil && (seq.StartValue != prev.StartValue || !reflect.DeepEqual(seq.Type, prev.Type)) {
-				return fmt.Errorf("sequence %s.%s start/type change requires an explicit migration", sn, n)
-			}
-		}
-	}
-	return nil
+	return validateNames(source, target)
 }
 
 func (d *SchemaDiffer) prepareDependencies(source, target *schema.Database, p *MigrationPlan) *schema.Database {
